@@ -13,8 +13,8 @@ This repository contains the Dresma recommendation stack, including:
 - Python 3.10+
 - `gcloud` CLI installed and authenticated
 - Access to:
-  - GCP project `vertex-production-391117`
-  - Secret Manager secret `spanner-service-account`
+  - GCP project `your project id`
+  - Secret Manager secret `your service account`
   - Spanner instance/database used by this project
 
 ## 2. Clone And Install
@@ -43,45 +43,28 @@ EXPLORATION_RATE=0.10
 
 ## 4. Authentication For Local Runs (Recommended)
 
-Use a real JSON file from Secret Manager for ADC (stable for Python apps/scripts):
+Use a real JSON file from Secret Manager for ADC (stable for Python apps/scripts),or if you have access from your drema account then procced with that:
 
-```bash
-cd /Users/harishchand/Desktop/dresma
-source venv/bin/activate
+go to the root directory 
+activate the venv
 
-mkdir -p .tmp
-gcloud secrets versions access latest \
-  --secret=spanner-service-account \
-  --project=vertex-production-391117 > .tmp/spanner-sa.json
-chmod 600 .tmp/spanner-sa.json
-```
+validate the gcloud adc and set it up 
 
-Then run commands with:
-
-```bash
-GOOGLE_APPLICATION_CREDENTIALS=/Users/harishchand/Desktop/dresma/.tmp/spanner-sa.json <your-command>
-```
 
 
 ## 5. Run Staging Heuristic Test
 
-```bash
-cd /Users/harishchand/Desktop/dresma
-source venv/bin/activate
-
-GOOGLE_APPLICATION_CREDENTIALS=/Users/harishchand/Desktop/dresma/.tmp/spanner-sa.json \
+run this command to see the results locally-
 python3 scripts/staging_heuristic_test.py --input scripts/staging/my_test.json --seed 42
-```
+
 
 
 
 ## 6. Run Local Frontend Playground
 
-```bash
-cd /Users/harishchand/Desktop/dresma/frontend
-source ../venv/bin/activate
 
-GOOGLE_APPLICATION_CREDENTIALS=/Users/harishchand/Desktop/dresma/.tmp/spanner-sa.json \
+
+GOOGLE_APPLICATION_CREDENTIALS=path_of_root_dir/.tmp/spanner-sa.json \
 uvicorn app:app --reload --port XXXX
 ```
 
@@ -96,7 +79,7 @@ gcloud config get-value account
 gcloud config get-value project
 
 # Verify Spanner access
-gcloud spanner instances list --project=vertex-production-391117
+gcloud spanner instances list --project=your_project_id
 ```
 
 ## 8. Common Issues
