@@ -82,12 +82,9 @@ cd /Users/harishchand/Desktop/dresma/frontend
 source ../venv/bin/activate
 
 GOOGLE_APPLICATION_CREDENTIALS=/Users/harishchand/Desktop/dresma/.tmp/spanner-sa.json \
-uvicorn app:app --reload --port 8090
+uvicorn app:app --reload --port XXXX
 ```
 
-Open:
-
-- http://127.0.0.1:8090
 
 ## 7. Useful Checks
 
