@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+google-cloud-spanner
+google-cloud-pubsub
+google-cloud-storage
+google-auth
+python-json-logger
+cachetools
+xgboost
+numpy
+pandas
+kfp

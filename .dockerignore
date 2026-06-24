@@ -1,0 +1,40 @@
+# Version control
+.git
+.gitignore
+
+# Environment and secrets
+.env
+.env.*
+
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE and editor
+.vscode/
+.cursor/
+.idea/
+*.swp
+*.swo
+
+# Local development artifacts (not needed in production image)
+tests/
+scripts/
+jobs/
+pipelines/
+infra/
+*.md
+.cursor_rules

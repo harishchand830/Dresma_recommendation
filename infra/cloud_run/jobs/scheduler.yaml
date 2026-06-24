@@ -1,0 +1,49 @@
+# Dresma batch jobs — Cloud Scheduler → Cloud Run Jobs (RFC Section 6.6, Task 2.11)
+#
+# Replace PROJECT_ID, REGION, and image tags before deploying.
+# Each job image is built from the matching Dockerfile under jobs/<name>/.
+#
+# Example deploy:
+#   gcloud run jobs create dresma-engagement-snapshot \
+#     --image=REGION-docker.pkg.dev/PROJECT_ID/dresma/jobs-engagement-snapshot:latest \
+#     --region=REGION \
+#     --set-env-vars=PROJECT_ID=PROJECT_ID,SPANNER_INSTANCE_ID=INSTANCE,SPANNER_DATABASE_ID=DATABASE
+#
+# Then create the scheduler entry below via Cloud Scheduler or Terraform.
+
+schedulers:
+  - name: dresma-engagement-snapshot-hourly
+    schedule: "0 * * * *"
+    time_zone: UTC
+    target:
+      type: cloud_run_job
+      job: dresma-engagement-snapshot
+      region: REGION
+    description: Hourly snapshot of reference image likes/comments into image_engagement_history.
+
+  - name: dresma-signal-computation-daily
+    schedule: "0 2 * * *"
+    time_zone: UTC
+    target:
+      type: cloud_run_job
+      job: dresma-signal-computation
+      region: REGION
+    description: Daily velocity, trend, freshness, and engagement_score into image_signals.
+
+  - name: dresma-cluster-trends-daily
+    schedule: "0 3 * * *"
+    time_zone: UTC
+    target:
+      type: cloud_run_job
+      job: dresma-cluster-trends
+      region: REGION
+    description: Daily cluster_trends aggregation from image_signals.
+
+  - name: dresma-reclustering-monthly
+    schedule: "0 4 1 * *"
+    time_zone: UTC
+    target:
+      type: cloud_run_job
+      job: dresma-reclustering
+      region: REGION
+    description: Monthly offline reclustering of reference_images into clusters.

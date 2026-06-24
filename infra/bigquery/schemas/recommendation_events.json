@@ -1,0 +1,50 @@
+[
+  {
+    "name": "job_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Recommendation session / upload identifier."
+  },
+  {
+    "name": "image_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Served reference image identifier."
+  },
+  {
+    "name": "position",
+    "type": "INTEGER",
+    "mode": "REQUIRED",
+    "description": "1-based display rank at serve time."
+  },
+  {
+    "name": "model_version",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Ranker version from recommendation_sessions."
+  },
+  {
+    "name": "ranking_mode",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "baseline_cosine, cold_start_heuristic, exploration, or model."
+  },
+  {
+    "name": "assigned_cluster_id",
+    "type": "INTEGER",
+    "mode": "NULLABLE",
+    "description": "Upload cluster assigned at serve time."
+  },
+  {
+    "name": "feature_snapshot",
+    "type": "JSON",
+    "mode": "NULLABLE",
+    "description": "Serve-time feature vector / candidate metadata for training."
+  },
+  {
+    "name": "served_at",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "UTC timestamp when the list was served."
+  }
+]

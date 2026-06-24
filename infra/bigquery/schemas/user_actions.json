@@ -1,0 +1,44 @@
+[
+  {
+    "name": "event_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Unique idempotency key for the interaction event (RFC Section 8.2)."
+  },
+  {
+    "name": "job_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Recommendation session / upload job identifier."
+  },
+  {
+    "name": "image_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Reference image identifier when applicable."
+  },
+  {
+    "name": "event_type",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "IMPRESSION, CLICK, SELECTION, GENERATION, or DOWNLOAD."
+  },
+  {
+    "name": "position",
+    "type": "INTEGER",
+    "mode": "NULLABLE",
+    "description": "1-based position in the served list at event time."
+  },
+  {
+    "name": "event_time",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "Client-reported event timestamp (UTC)."
+  },
+  {
+    "name": "metadata",
+    "type": "JSON",
+    "mode": "NULLABLE",
+    "description": "Optional event-specific metadata from POST /v1/interaction."
+  }
+]

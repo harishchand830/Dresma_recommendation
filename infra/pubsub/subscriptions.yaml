@@ -1,0 +1,35 @@
+# Dresma Recommendation Service — Pub/Sub subscriptions (RFC Section 8.2)
+#
+# Prerequisites:
+#   1. Topic `dresma-interaction-events` exists (see infra/pubsub/topics.yaml).
+#   2. BigQuery dataset `dresma` and table `user_actions` exist with schema from
+#      infra/bigquery/schemas/user_actions.json.
+#   3. Pub/Sub service agent has BigQuery Data Editor on the destination table.
+#
+# Create dataset + table:
+#   bq mk --dataset PROJECT_ID:dresma
+#   bq mk --table PROJECT_ID:dresma.user_actions infra/bigquery/schemas/user_actions.json
+#
+# Create subscription (use_topic_schema requires a schema on the topic; if none is
+# registered yet, use --use-table-schema instead so JSON payloads map to columns):
+#   gcloud pubsub subscriptions create dresma-interaction-events-bq-sub \
+#     --project=PROJECT_ID \
+#     --topic=dresma-interaction-events \
+#     --bigquery-table=PROJECT_ID:dresma.user_actions \
+#     --use-topic-schema \
+#     --write-metadata
+
+subscriptions:
+  - name: dresma-interaction-events-bq-sub
+    topic: dresma-interaction-events
+    description: >
+      Streams interaction events from Pub/Sub into BigQuery for analytics,
+      baseline measurement, and offline training (RFC Sections 7.8, 8.2, 11).
+    bigquery_config:
+      table: PROJECT_ID.dresma.user_actions
+      use_topic_schema: true
+      write_metadata: true
+      write_disposition: WRITE_APPEND
+    message_format: application/json
+    source_schema: InteractionRequest (see src/dresma_rec/schemas/interaction.py)
+    dead_letter_policy: null

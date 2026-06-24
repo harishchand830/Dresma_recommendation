@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dresma_rec"
+version = "0.1.0"
+description = "Dresma Recommendation & Reference Image Ranking Service"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "google-cloud-spanner",
+    "google-cloud-pubsub",
+    "google-cloud-storage",
+    "google-auth",
+    "python-json-logger",
+    "cachetools",
+    "xgboost",
+    "numpy",
+    "pandas",
+    "kfp",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

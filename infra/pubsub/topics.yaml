@@ -1,0 +1,16 @@
+# Dresma Recommendation Service — Pub/Sub topics (RFC Section 8.2)
+#
+# Create in GCP:
+#   gcloud pubsub topics create dresma-interaction-events --project=PROJECT_ID
+#
+# Set PUBSUB_INTERACTION_TOPIC=dresma-interaction-events in the service environment.
+
+topics:
+  - name: dresma-interaction-events
+    description: >
+      User interaction events emitted by POST /v1/interaction (impression, click,
+      selection, generation, download). Consumed downstream by BigQuery and Spanner
+      writers (Phase 1 Tasks 1.12–1.14).
+    message_encoding: UTF-8
+    message_format: application/json
+    schema: InteractionRequest (see src/dresma_rec/schemas/interaction.py)

@@ -1,0 +1,524 @@
+# PIPELINE DEFINITION
+# Name: dresma-xgboost-training
+# Description: End-to-end LTR training pipeline
+# Inputs:
+#    bucket_name: str
+#    dataset_id: str
+#    project_id: str
+#    run_id: str
+#    spanner_database: str
+#    spanner_instance: str
+components:
+  comp-evaluate-xgboost-ranker:
+    executorLabel: exec-evaluate-xgboost-ranker
+    inputDefinitions:
+      artifacts:
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        test_data_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-materialize-training-dataset:
+    executorLabel: exec-materialize-training-dataset
+    inputDefinitions:
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-register-model:
+    executorLabel: exec-register-model
+    inputDefinitions:
+      artifacts:
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        bucket_name:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+        spanner_database:
+          parameterType: STRING
+        spanner_instance:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        gcs_uri:
+          parameterType: STRING
+  comp-train-xgboost-ranker:
+    executorLabel: exec-train-xgboost-ranker
+    inputDefinitions:
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        train_table:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        test_data_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-validate-xgboost-ranker:
+    executorLabel: exec-validate-xgboost-ranker
+    inputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: BOOLEAN
+deploymentSpec:
+  executors:
+    exec-evaluate-xgboost-ranker:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_xgboost_ranker
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'xgboost'\
+          \ 'scikit-learn' 'pyarrow'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_xgboost_ranker(\n    model_artifact: Input[Model],\n\
+          \    test_data_artifact: Input[Dataset],\n    metrics: Output[Metrics],\n\
+          ) -> None:\n    \"\"\"Compute NDCG@3, NDCG@10, and MRR on the held-out test\
+          \ split.\"\"\"\n    import json\n    import os\n\n    import numpy as np\n\
+          \    import pandas as pd\n    import xgboost as xgb\n    from sklearn.metrics\
+          \ import ndcg_score\n\n    _EXPECTED_FEATURES = [\n        \"fg_cosine_distance\"\
+          ,\n        \"full_cosine_distance\",\n        \"trend_score\",\n       \
+          \ \"engagement_score\",\n        \"freshness_score\",\n    ]\n    _DISTANCE_FEATURES\
+          \ = frozenset(\n        {\"fg_cosine_distance\", \"full_cosine_distance\"\
+          }\n    )\n\n    def _feature_default(feature_name: str) -> float:\n    \
+          \    if feature_name in _DISTANCE_FEATURES:\n            return 1.0\n  \
+          \      return 0.0\n\n    def _parse_snapshot(snapshot: object) -> dict:\n\
+          \        if snapshot is None:\n            return {}\n        if isinstance(snapshot,\
+          \ str):\n            if not snapshot.strip():\n                return {}\n\
+          \            return json.loads(snapshot)\n        if isinstance(snapshot,\
+          \ dict):\n            return snapshot\n        return {}\n\n    def _extract_feature(snapshot:\
+          \ dict, feature_name: str) -> float:\n        value = snapshot.get(feature_name,\
+          \ _feature_default(feature_name))\n        if value is None:\n         \
+          \   return _feature_default(feature_name)\n        return float(value)\n\
+          \n    def _assemble_features(df: pd.DataFrame) -> pd.DataFrame:\n      \
+          \  if \"feature_snapshot\" not in df.columns:\n            raise ValueError(\n\
+          \                \"Input DataFrame must contain a 'feature_snapshot' column\"\
+          \n            )\n\n        rows = []\n        for snapshot in df[\"feature_snapshot\"\
+          ]:\n            parsed = _parse_snapshot(snapshot)\n            rows.append(\n\
+          \                {\n                    feature_name: _extract_feature(parsed,\
+          \ feature_name)\n                    for feature_name in _EXPECTED_FEATURES\n\
+          \                }\n            )\n\n        return pd.DataFrame(rows, columns=_EXPECTED_FEATURES).astype(\"\
+          float32\")\n\n    def _reciprocal_rank(labels: np.ndarray) -> float:\n \
+          \       for position, label in enumerate(labels, start=1):\n           \
+          \ if label > 0:\n                return 1.0 / position\n        return 0.0\n\
+          \n    test_input_path = test_data_artifact.path\n    if os.path.isdir(test_input_path):\n\
+          \        test_input_path = os.path.join(test_input_path, \"data.parquet\"\
+          )\n    test_df = pd.read_parquet(test_input_path)\n\n    test_df = test_df.sort_values(\"\
+          job_id\").reset_index(drop=True)\n    X_test = _assemble_features(test_df)\n\
+          \n    model_input_path = model_artifact.path\n    if os.path.isdir(model_input_path):\n\
+          \        model_input_path = os.path.join(model_input_path, \"model.json\"\
+          )\n    model = xgb.XGBRanker()\n    model.load_model(model_input_path)\n\
+          \n    test_df[\"predicted_score\"] = model.predict(X_test)\n\n    ndcg_3_scores:\
+          \ list[float] = []\n    ndcg_10_scores: list[float] = []\n    mrr_scores:\
+          \ list[float] = []\n\n    for _, group in test_df.groupby(\"job_id\", sort=False):\n\
+          \        ranked = group.sort_values(\"predicted_score\", ascending=False)\n\
+          \        y_true = ranked[\"relevance_label\"].to_numpy().reshape(1, -1)\n\
+          \        y_score = ranked[\"predicted_score\"].to_numpy().reshape(1, -1)\n\
+          \n        ndcg_3_scores.append(float(ndcg_score(y_true, y_score, k=3)))\n\
+          \        ndcg_10_scores.append(float(ndcg_score(y_true, y_score, k=10)))\n\
+          \        mrr_scores.append(_reciprocal_rank(ranked[\"relevance_label\"].to_numpy()))\n\
+          \n    avg_ndcg_3 = float(np.mean(ndcg_3_scores)) if ndcg_3_scores else 0.0\n\
+          \    avg_ndcg_10 = float(np.mean(ndcg_10_scores)) if ndcg_10_scores else\
+          \ 0.0\n    avg_mrr = float(np.mean(mrr_scores)) if mrr_scores else 0.0\n\
+          \n    metrics.log_metric(\"ndcg_3\", avg_ndcg_3)\n    metrics.log_metric(\"\
+          ndcg_10\", avg_ndcg_10)\n    metrics.log_metric(\"mrr\", avg_mrr)\n\n"
+        image: python:3.10
+    exec-materialize-training-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - materialize_training_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef materialize_training_dataset(\n    project_id: str,\n    dataset_id:\
+          \ str,\n    run_id: str,\n) -> str:\n    \"\"\"Materialize ``train_{run_id}``\
+          \ from the graded-label training view.\"\"\"\n    from google.cloud import\
+          \ bigquery\n\n    client = bigquery.Client(project=project_id)\n    destination_table\
+          \ = f\"{project_id}.{dataset_id}.train_{run_id}\"\n    source_table = f\"\
+          {project_id}.{dataset_id}.v_training_dataset\"\n\n    query = (\n      \
+          \  f\"CREATE TABLE `{destination_table}` AS \"\n        f\"SELECT * FROM\
+          \ `{source_table}`\"\n    )\n    query_job = client.query(query)\n    query_job.result()\n\
+          \n    return destination_table\n\n"
+        image: python:3.10
+    exec-register-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - register_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
+          \ 'google-cloud-spanner'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef register_model(\n    model_artifact: Input[Model],\n    project_id:\
+          \ str,\n    run_id: str,\n    bucket_name: str,\n    spanner_instance: str,\n\
+          \    spanner_database: str,\n    gcs_uri: OutputPath(str),\n) -> None:\n\
+          \    \"\"\"Upload model JSON to GCS and insert a STAGING row in ``model_metadata``.\"\
+          \"\"\n    import json\n    import os\n\n    from google.cloud import spanner,\
+          \ storage\n\n    _EXPECTED_FEATURES = [\n        \"fg_cosine_distance\"\
+          ,\n        \"full_cosine_distance\",\n        \"trend_score\",\n       \
+          \ \"engagement_score\",\n        \"freshness_score\",\n    ]\n\n    model_input_path\
+          \ = model_artifact.path\n    if os.path.isdir(model_input_path):\n     \
+          \   model_input_path = os.path.join(model_input_path, \"model.json\")\n\n\
+          \    blob_name = f\"xgboost/run_{run_id}/xgb-rank.json\"\n    storage_client\
+          \ = storage.Client(project=project_id)\n    bucket = storage_client.bucket(bucket_name)\n\
+          \    blob = bucket.blob(blob_name)\n    blob.upload_from_filename(model_input_path)\n\
+          \n    final_gcs_uri = f\"gs://{bucket_name}/{blob_name}\"\n    model_version\
+          \ = f\"xgb-{run_id}\"\n\n    spanner_client = spanner.Client(project=project_id)\n\
+          \    database = spanner_client.instance(spanner_instance).database(spanner_database)\n\
+          \n    def insert_transaction(transaction: spanner.Transaction) -> None:\n\
+          \        transaction.insert(\n            \"model_metadata\",\n        \
+          \    columns=[\n                \"model_version\",\n                \"artifact_uri\"\
+          ,\n                \"feature_list\",\n                \"status\",\n    \
+          \            \"trained_at\",\n            ],\n            values=[\n   \
+          \             (\n                    model_version,\n                  \
+          \  final_gcs_uri,\n                    json.dumps(_EXPECTED_FEATURES),\n\
+          \                    \"STAGING\",\n                    spanner.COMMIT_TIMESTAMP,\n\
+          \                )\n            ],\n        )\n\n    database.run_in_transaction(insert_transaction)\n\
+          \n    with open(gcs_uri, \"w\", encoding=\"utf-8\") as handle:\n       \
+          \ handle.write(final_gcs_uri)\n\n    print(final_gcs_uri)\n\n"
+        image: python:3.10
+    exec-train-xgboost-ranker:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_xgboost_ranker
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery'\
+          \ 'pandas' 'xgboost' 'db-dtypes' 'pyarrow'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_xgboost_ranker(\n    project_id: str,\n    dataset_id:\
+          \ str,\n    train_table: str,\n    model_artifact: Output[Model],\n    test_data_artifact:\
+          \ Output[Dataset],\n) -> None:\n    \"\"\"Train ``rank:ndcg`` ranker on\
+          \ a materialized BigQuery table.\"\"\"\n    import json\n    import os\n\
+          \n    import pandas as pd\n    import xgboost as xgb\n    from google.cloud\
+          \ import bigquery\n\n    _EXPECTED_FEATURES = [\n        \"fg_cosine_distance\"\
+          ,\n        \"full_cosine_distance\",\n        \"trend_score\",\n       \
+          \ \"engagement_score\",\n        \"freshness_score\",\n    ]\n    _DISTANCE_FEATURES\
+          \ = frozenset(\n        {\"fg_cosine_distance\", \"full_cosine_distance\"\
+          }\n    )\n\n    def _feature_default(feature_name: str) -> float:\n    \
+          \    if feature_name in _DISTANCE_FEATURES:\n            return 1.0\n  \
+          \      return 0.0\n\n    def _parse_snapshot(snapshot: object) -> dict:\n\
+          \        if snapshot is None:\n            return {}\n        if isinstance(snapshot,\
+          \ str):\n            if not snapshot.strip():\n                return {}\n\
+          \            return json.loads(snapshot)\n        if isinstance(snapshot,\
+          \ dict):\n            return snapshot\n        return {}\n\n    def _extract_feature(snapshot:\
+          \ dict, feature_name: str) -> float:\n        value = snapshot.get(feature_name,\
+          \ _feature_default(feature_name))\n        if value is None:\n         \
+          \   return _feature_default(feature_name)\n        return float(value)\n\
+          \n    def _assemble_features(df: pd.DataFrame) -> pd.DataFrame:\n      \
+          \  if \"feature_snapshot\" not in df.columns:\n            raise ValueError(\n\
+          \                \"Input DataFrame must contain a 'feature_snapshot' column\"\
+          \n            )\n\n        rows = []\n        for snapshot in df[\"feature_snapshot\"\
+          ]:\n            parsed = _parse_snapshot(snapshot)\n            rows.append(\n\
+          \                {\n                    feature_name: _extract_feature(parsed,\
+          \ feature_name)\n                    for feature_name in _EXPECTED_FEATURES\n\
+          \                }\n            )\n\n        return pd.DataFrame(rows, columns=_EXPECTED_FEATURES).astype(\"\
+          float32\")\n\n    client = bigquery.Client(project=project_id)\n    df =\
+          \ client.query(f\"SELECT * FROM `{train_table}`\").to_dataframe()\n\n  \
+          \  df = df.sort_values(\"served_at\", ascending=True).reset_index(drop=True)\n\
+          \    split_idx = int(len(df) * 0.8)\n    train_df = df.iloc[:split_idx].copy()\n\
+          \    test_df = df.iloc[split_idx:].copy()\n\n    test_output_path = test_data_artifact.path\n\
+          \    if os.path.isdir(test_output_path):\n        test_output_path = os.path.join(test_output_path,\
+          \ \"data.parquet\")\n    test_df.to_parquet(test_output_path, index=False)\n\
+          \n    train_df = train_df.sort_values(\"job_id\").reset_index(drop=True)\n\
+          \    X_train = _assemble_features(train_df)\n    y_train = train_df[\"relevance_label\"\
+          ].values\n    qid_train, _ = pd.factorize(train_df[\"job_id\"], sort=False)\n\
+          \n    model = xgb.XGBRanker(\n        objective=\"rank:ndcg\",\n       \
+          \ n_estimators=100,\n        learning_rate=0.1,\n    )\n    model.fit(X_train,\
+          \ y_train, qid=qid_train)\n\n    model_output_path = model_artifact.path\n\
+          \    if os.path.isdir(model_output_path):\n        model_output_path = os.path.join(model_output_path,\
+          \ \"model.json\")\n    model.save_model(model_output_path)\n\n"
+        image: python:3.10
+    exec-validate-xgboost-ranker:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - validate_xgboost_ranker
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'xgboost'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef validate_xgboost_ranker(\n    model_artifact: Input[Model],\n\
+          \    metrics: Input[Metrics],\n) -> bool:\n    \"\"\"Hard gate: NDCG baseline\
+          \ and ordered feature-list contract.\"\"\"\n    import json\n    import\
+          \ os\n\n    import xgboost as xgb\n\n    _EXPECTED_FEATURES = [\n      \
+          \  \"fg_cosine_distance\",\n        \"full_cosine_distance\",\n        \"\
+          trend_score\",\n        \"engagement_score\",\n        \"freshness_score\"\
+          ,\n    ]\n\n    def _read_ndcg_3(metrics_input: Metrics) -> float:\n   \
+          \     metadata = getattr(metrics_input, \"metadata\", None)\n        if\
+          \ isinstance(metadata, dict) and \"ndcg_3\" in metadata:\n            return\
+          \ float(metadata[\"ndcg_3\"])\n\n        metrics_path = metrics_input.path\n\
+          \        candidate_paths = [\n            metrics_path,\n            os.path.join(metrics_path,\
+          \ \"metrics.json\"),\n        ]\n        for path in candidate_paths:\n\
+          \            if not os.path.isfile(path):\n                continue\n  \
+          \          with open(path, encoding=\"utf-8\") as handle:\n            \
+          \    payload = json.load(handle)\n\n            if isinstance(payload, dict):\n\
+          \                if \"ndcg_3\" in payload:\n                    return float(payload[\"\
+          ndcg_3\"])\n                for item in payload.get(\"metrics\", []):\n\
+          \                    if item.get(\"name\") == \"ndcg_3\":\n            \
+          \            value = item.get(\"numberValue\", item.get(\"value\"))\n  \
+          \                      return float(value)\n\n        raise ValueError(\"\
+          Could not read ndcg_3 from metrics artifact\")\n\n    ndcg_3 = _read_ndcg_3(metrics)\n\
+          \    if ndcg_3 <= 0.0:\n        raise ValueError(\"Model failed NDCG baseline\
+          \ check.\")\n\n    model_input_path = model_artifact.path\n    if os.path.isdir(model_input_path):\n\
+          \        model_input_path = os.path.join(model_input_path, \"model.json\"\
+          )\n\n    model = xgb.XGBRanker()\n    model.load_model(model_input_path)\n\
+          \    feature_names = list(model.get_booster().feature_names or [])\n\n \
+          \   if feature_names != _EXPECTED_FEATURES:\n        raise ValueError(\n\
+          \            f\"Feature mismatch! Expected {_EXPECTED_FEATURES}, got {feature_names}\"\
+          \n        )\n\n    return True\n\n"
+        image: python:3.10
+pipelineInfo:
+  description: End-to-end LTR training pipeline
+  name: dresma-xgboost-training
+root:
+  dag:
+    tasks:
+      evaluate-xgboost-ranker:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-evaluate-xgboost-ranker
+        dependentTasks:
+        - train-xgboost-ranker
+        inputs:
+          artifacts:
+            model_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: model_artifact
+                producerTask: train-xgboost-ranker
+            test_data_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: test_data_artifact
+                producerTask: train-xgboost-ranker
+        taskInfo:
+          name: evaluate-xgboost-ranker
+      materialize-training-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-materialize-training-dataset
+        inputs:
+          parameters:
+            dataset_id:
+              componentInputParameter: dataset_id
+            project_id:
+              componentInputParameter: project_id
+            run_id:
+              componentInputParameter: run_id
+        taskInfo:
+          name: materialize-training-dataset
+      register-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-register-model
+        dependentTasks:
+        - train-xgboost-ranker
+        - validate-xgboost-ranker
+        inputs:
+          artifacts:
+            model_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: model_artifact
+                producerTask: train-xgboost-ranker
+          parameters:
+            bucket_name:
+              componentInputParameter: bucket_name
+            project_id:
+              componentInputParameter: project_id
+            run_id:
+              componentInputParameter: run_id
+            spanner_database:
+              componentInputParameter: spanner_database
+            spanner_instance:
+              componentInputParameter: spanner_instance
+        taskInfo:
+          name: register-model
+      train-xgboost-ranker:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-xgboost-ranker
+        dependentTasks:
+        - materialize-training-dataset
+        inputs:
+          parameters:
+            dataset_id:
+              componentInputParameter: dataset_id
+            project_id:
+              componentInputParameter: project_id
+            train_table:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: materialize-training-dataset
+        taskInfo:
+          name: train-xgboost-ranker
+      validate-xgboost-ranker:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-validate-xgboost-ranker
+        dependentTasks:
+        - evaluate-xgboost-ranker
+        - train-xgboost-ranker
+        inputs:
+          artifacts:
+            metrics:
+              taskOutputArtifact:
+                outputArtifactKey: metrics
+                producerTask: evaluate-xgboost-ranker
+            model_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: model_artifact
+                producerTask: train-xgboost-ranker
+        taskInfo:
+          name: validate-xgboost-ranker
+  inputDefinitions:
+    parameters:
+      bucket_name:
+        parameterType: STRING
+      dataset_id:
+        parameterType: STRING
+      project_id:
+        parameterType: STRING
+      run_id:
+        parameterType: STRING
+      spanner_database:
+        parameterType: STRING
+      spanner_instance:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.16.1
