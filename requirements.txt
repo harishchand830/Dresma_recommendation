@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 pydantic
+python-multipart
 pydantic-settings
 google-cloud-spanner
 google-cloud-pubsub
@@ -8,6 +9,7 @@ google-cloud-storage
 google-auth
 python-json-logger
 cachetools
+google-cloud-aiplatform
 xgboost
 numpy
 pandas

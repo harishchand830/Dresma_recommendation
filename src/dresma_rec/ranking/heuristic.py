@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 from functools import lru_cache
 from typing import Final
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_WEIGHT_FG: Final[float] = 0
 _DEFAULT_WEIGHT_FULL: Final[float] = 0
@@ -54,11 +57,13 @@ class HeuristicRanker:
         if top_n <= 0:
             return []
         
-        # DEBUG: Log weight configuration at start of ranking
-        import sys
-        print(f"[DEBUG HEURISTIC] Ranking with weights: fg={self.weight_fg}, full={self.weight_full}, trend={self.weight_trend}, popular={self.weight_popular}, fresh={self.weight_fresh}", file=sys.stderr)
+        logger.debug(
+            "Ranking with weights: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s",
+            self.weight_fg, self.weight_full, self.weight_trend,
+            self.weight_popular, self.weight_fresh
+        )
 
-        for candidate in candidates:
+        for i, candidate in enumerate(candidates):
             fg_dist = _score_or_default(candidate, "fg_cosine_distance", 1.0)
             full_dist = _score_or_default(candidate, "full_cosine_distance", 1.0)
             trend = _score_or_default(candidate, "trend_score", 0.0)
@@ -77,10 +82,12 @@ class HeuristicRanker:
             )
             candidate["ranking_mode"] = "cold_start_heuristic"
             
-            # DEBUG: Log first 3 candidates' score computation
-            if candidate.get("_score_debug_index", 0) < 3:
-                candidate["_score_debug_index"] = candidate.get("_score_debug_index", 0) + 1
-                print(f"[DEBUG HEURISTIC] Candidate {candidate.get('image_id')}: fg_sim={fg_sim:.4f}, full_sim={full_sim:.4f}, trend={trend:.4f}, popular={popular:.4f}, fresh={fresh:.4f} => model_score={candidate['model_score']:.4f}", file=sys.stderr)
+            if logger.isEnabledFor(logging.DEBUG) and i < 10:  # Log first 10
+                logger.debug(
+                    "Candidate %s: fg_sim=%.4f, full_sim=%.4f, trend=%.4f, popular=%.4f, fresh=%.4f => model_score=%.4f",
+                    candidate.get('image_id'), fg_sim, full_sim, trend, popular, fresh,
+                    candidate['model_score']
+                )
 
         ranked = sorted(
             candidates,

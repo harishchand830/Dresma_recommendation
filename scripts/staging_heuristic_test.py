@@ -440,20 +440,19 @@ async def run_heuristic_test(
     if weight_fresh is not None:
         ranker_kwargs["weight_fresh"] = weight_fresh
     
-    # DEBUG: Log weights passed to ranker
-    print(f"\n[DEBUG] Weight overrides received:")
-    print(f"  weight_fg={weight_fg}, weight_full={weight_full}, weight_trend={weight_trend}, weight_popular={weight_popular}, weight_fresh={weight_fresh}")
-    print(f"[DEBUG] ranker_kwargs (passed to HeuristicRanker):")
-    print(f"  {ranker_kwargs}")
+    logger.debug(
+        "Weight overrides received: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s",
+        weight_fg, weight_full, weight_trend, weight_popular, weight_fresh
+    )
+    logger.debug("ranker_kwargs (passed to HeuristicRanker): %s", ranker_kwargs)
     
     ranker = HeuristicRanker(**ranker_kwargs)
     
-    print(f"[DEBUG] HeuristicRanker created with weights:")
-    print(f"  weight_fg={ranker.weight_fg}")
-    print(f"  weight_full={ranker.weight_full}")
-    print(f"  weight_trend={ranker.weight_trend}")
-    print(f"  weight_popular={ranker.weight_popular}")
-    print(f"  weight_fresh={ranker.weight_fresh}")
+    logger.debug(
+        "HeuristicRanker created with weights: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s",
+        ranker.weight_fg, ranker.weight_full, ranker.weight_trend,
+        ranker.weight_popular, ranker.weight_fresh
+    )
 
     cluster_id = await assigner.assign_cluster(
         request.upload.foreground_embedding,
@@ -469,21 +468,27 @@ async def run_heuristic_test(
     channel_counts = _channel_summary(candidates)
     print(f"Retrieved {len(candidates)} unique candidates")
     print(f"Channel coverage: {channel_counts}")
-    
-    # DEBUG: Show signals for first 5 candidates before ranking
-    print(f"\n[DEBUG] Sample candidate signals (first 5):")
-    for i, cand in enumerate(candidates[:5]):
-        print(f"  Candidate {i}: image_id={cand.get('image_id')}, channels={cand.get('source_channels', [])}")
-        print(f"    fg_dist={cand.get('fg_cosine_distance', 'N/A')}, full_dist={cand.get('full_cosine_distance', 'N/A')}")
-        print(f"    trend={cand.get('trend_score', 'N/A')}, engage={cand.get('engagement_score', 'N/A')}, fresh={cand.get('freshness_score', 'N/A')}")
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Sample candidate signals (first 5):")
+        for i, cand in enumerate(candidates[:5]):
+            logger.debug(
+                "  Candidate %d: image_id=%s, channels=%s, fg_dist=%s, full_dist=%s, trend=%s, engage=%s, fresh=%s",
+                i, cand.get('image_id'), cand.get('source_channels', []),
+                cand.get('fg_cosine_distance', 'N/A'), cand.get('full_cosine_distance', 'N/A'),
+                cand.get('trend_score', 'N/A'), cand.get('engagement_score', 'N/A'), cand.get('freshness_score', 'N/A')
+            )
 
     ranked = ranker.rank(candidates, top_n=request.top_n)
     
-    # DEBUG: Show ranked results with computed model_scores
-    print(f"\n[DEBUG] Top 5 ranked results with model_scores:")
-    for i, result in enumerate(ranked[:5]):
-        print(f"  #{i+1}: image_id={result.get('image_id')}, model_score={result.get('model_score', 'N/A')}")
-        print(f"    channels={result.get('source_channels', [])}, is_exploration={result.get('is_exploration', False)}")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Top 5 ranked results with model_scores:")
+        for i, result in enumerate(ranked[:5]):
+            logger.debug(
+                "  #%d: image_id=%s, model_score=%s, channels=%s, is_exploration=%s",
+                i+1, result.get('image_id'), result.get('model_score', 'N/A'),
+                result.get('source_channels', []), result.get('is_exploration', False)
+            )
     print_ranked_results(ranked, cluster_id, len(candidates))
 
     image_meta = _fetch_likes_comments(
@@ -514,12 +519,12 @@ async def run_heuristic_test(
                         "image_url": row.get("image_url"),
                         "likes": image_meta.get(row["image_id"], {}).get("likes"),
                         "comments": image_meta.get(row["image_id"], {}).get("comments"),
-                        "model_score": row.get("model_score"),
-                        "fg_cosine_distance": row.get("fg_cosine_distance"),
-                        "full_cosine_distance": row.get("full_cosine_distance"),
-                        "trend_score": row.get("trend_score"),
-                        "engagement_score": row.get("engagement_score"),
-                        "freshness_score": row.get("freshness_score"),
+                        "model_score": row.get("model_score", 0.0),
+                        "fg_cosine_distance": row.get("fg_cosine_distance", 1.0),
+                        "full_cosine_distance": row.get("full_cosine_distance", 1.0),
+                        "trend_score": row.get("trend_score", 0.0),
+                        "engagement_score": row.get("engagement_score", 0.0),
+                        "freshness_score": row.get("freshness_score", 0.0),
                         "source_channels": row.get("source_channels", []),
                         "ranking_mode": row.get("ranking_mode"),
                         "is_exploration": row.get("is_exploration", False),
