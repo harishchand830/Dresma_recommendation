@@ -140,6 +140,7 @@ def run_heuristic_from_upload(
     weight_trend: float = Form(...),
     weight_popular: float = Form(...),
     weight_fresh: float = Form(...),
+    top_n: int = Form(40),
     seed: int = Form(42),
     image: UploadFile = File(...),
 ) -> dict[str, Any]:
@@ -163,7 +164,7 @@ def run_heuristic_from_upload(
         "image_url": f"local-upload:{image.filename}",
         "foreground_embedding": fg_embedding,
         "full_image_embedding": full_embedding,
-        "top_n": 40,  # As per frontend/README.md
+        "top_n": top_n,
         "output_file": str(OUTPUT_PATH),
     }
     INPUT_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")

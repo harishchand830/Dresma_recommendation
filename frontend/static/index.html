@@ -19,35 +19,39 @@
             <input type="file" id="imageUpload" accept="image/*" />
             <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
                 <img id="imagePreview" src="#" alt="Image Preview" />
+                <div id="clusterInfo" class="cluster-info" style="display: none;">
+                    Assigned Cluster ID: <span id="clusterId"></span>
+                </div>
             </div>
         </div>
 
         <div class="weights-section">
             <h2>2. Tune Heuristic Weights</h2>
-            <div class="slider-group">
+            <div class="input-group">
                 <label for="weight_fg">Foreground (C1)</label>
-                <input type="range" id="weight_fg" min="0" max="1" step="0.01" value="0.7" />
-                <span id="weight_fg_val">0.70</span>
+                <input type="number" id="weight_fg" min="0" max="1" step="0.01" value="0.7" />
             </div>
-            <div class="slider-group">
+            <div class="input-group">
                 <label for="weight_full">Full Image (C2)</label>
-                <input type="range" id="weight_full" min="0" max="1" step="0.01" value="0.05" />
-                <span id="weight_full_val">0.05</span>
+                <input type="number" id="weight_full" min="0" max="1" step="0.01" value="0.05" />
             </div>
-            <div class="slider-group">
+            <div class="input-group">
                 <label for="weight_trend">Trending (C3)</label>
-                <input type="range" id="weight_trend" min="0" max="1" step="0.01" value="0.1" />
-                <span id="weight_trend_val">0.10</span>
+                <input type="number" id="weight_trend" min="0" max="1" step="0.01" value="0.1" />
             </div>
-            <div class="slider-group">
+            <div class="input-group">
                 <label for="weight_popular">Popular (C4)</label>
-                <input type="range" id="weight_popular" min="0" max="1" step="0.01" value="0.1" />
-                <span id="weight_popular_val">0.10</span>
+                <input type="number" id="weight_popular" min="0" max="1" step="0.01" value="0.1" />
             </div>
-            <div class="slider-group">
+            <div class="input-group">
                 <label for="weight_fresh">Freshness (C5)</label>
-                <input type="range" id="weight_fresh" min="0" max="1" step="0.01" value="0.05" />
-                <span id="weight_fresh_val">0.05</span>
+                <input type="number" id="weight_fresh" min="0" max="1" step="0.01" value="0.05" />
+            </div>
+
+            <h2 style="margin-top: 40px;">3. Configure Retrieval</h2>
+            <div class="input-group">
+                <label for="top_n">Number of Results</label>
+                <input type="number" id="top_n" min="1" max="100" step="1" value="40" />
             </div>
         </div>
 
@@ -85,6 +89,7 @@
       const errorDiv = document.getElementById("error");
       const resultsDiv = document.getElementById("results");
       const resultsGrid = document.getElementById("resultsGrid");
+      const clusterInfoDiv = document.getElementById("clusterInfo");
       const debugDiv = document.getElementById("debug");
       const debugOutput = document.getElementById("debugOutput");
 
@@ -94,6 +99,7 @@
         weight_trend: document.getElementById("weight_trend"),
         weight_popular: document.getElementById("weight_popular"),
         weight_fresh: document.getElementById("weight_fresh"),
+        top_n: document.getElementById("top_n"),
       };
 
       // --- Event Listeners ---
@@ -105,15 +111,18 @@
         }
       });
 
-      Object.entries(sliders).forEach(([id, slider]) => {
-        slider.addEventListener("input", () => {
-          document.getElementById(`${id}_val`).textContent = parseFloat(slider.value).toFixed(2);
-        });
-      });
-
       runButton.addEventListener("click", runPipeline);
 
       // --- Main Logic ---
+      function resetUI() {
+        loadingDiv.style.display = "block";
+        errorDiv.style.display = "none";
+        resultsDiv.style.display = "none";
+        debugDiv.style.display = "none";
+        clusterInfoDiv.style.display = "none";
+        resultsGrid.innerHTML = "";
+      }
+
       async function runPipeline() {
         const imageFile = imageUpload.files[0];
         if (!imageFile) {
@@ -122,17 +131,14 @@
         }
 
         // Reset UI
-        loadingDiv.style.display = "block";
-        errorDiv.style.display = "none";
-        resultsDiv.style.display = "none";
-        debugDiv.style.display = "none";
-        resultsGrid.innerHTML = "";
+        resetUI();
 
         const formData = new FormData();
         formData.append("image", imageFile);
         formData.append("seed", 42);
-        Object.entries(sliders).forEach(([id, slider]) => {
-            formData.append(id, slider.value);
+        formData.append("top_n", sliders.top_n.value);
+        ['weight_fg', 'weight_full', 'weight_trend', 'weight_popular', 'weight_fresh'].forEach(id => {
+            formData.append(id, sliders[id].value);
         });
 
         try {
@@ -148,6 +154,7 @@
           }
 
           displayResults(data.results);
+          displayClusterId(data.results.assigned_cluster_id);
           debugOutput.textContent = data.stdout + "\n\n" + data.stderr;
           debugDiv.style.display = "block";
 
@@ -157,6 +164,11 @@
         } finally {
           loadingDiv.style.display = "none";
         }
+      }
+
+      function displayClusterId(clusterId) {
+        document.getElementById("clusterId").textContent = clusterId;
+        clusterInfoDiv.style.display = "block";
       }
 
       function displayResults(data) {
