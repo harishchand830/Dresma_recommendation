@@ -114,6 +114,7 @@ function collectWeights() {
     weight_trend: safeNum(el("wTrend").value, 0.1),
     weight_popular: safeNum(el("wPopular").value, 0.1),
     weight_fresh: safeNum(el("wFresh").value, 0.05),
+    weight_brand: safeNum(el("wBrand")?.value, 0.02),
   };
 }
 
@@ -136,7 +137,7 @@ function renderResults(results) {
     <div><strong>Job:</strong> ${results.job_id}</div>
     <div><strong>Cluster:</strong> ${results.assigned_cluster_id}</div>
     <div><strong>Pool:</strong> ${results.candidate_pool_size}</div>
-    <div><strong>Weights:</strong> fg=${fmt(results.weights.weight_fg, 2)}, full=${fmt(results.weights.weight_full, 2)}, trend=${fmt(results.weights.weight_trend, 2)}, popular=${fmt(results.weights.weight_popular, 2)}, fresh=${fmt(results.weights.weight_fresh, 2)}</div>
+    <div><strong>Weights:</strong> fg=${fmt(results.weights.weight_fg, 2)}, full=${fmt(results.weights.weight_full, 2)}, trend=${fmt(results.weights.weight_trend, 2)}, popular=${fmt(results.weights.weight_popular, 2)}, fresh=${fmt(results.weights.weight_fresh, 2)}, brand=${fmt(results.weights.weight_brand, 2)}</div>
   `;
 
   info.textContent = `Showing ${results.results.length} images`;

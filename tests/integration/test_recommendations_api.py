@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from dresma_rec.schemas.recommendations import RecommendationResult
 
-from tests.conftest import MOCK_EMBEDDING
+from conftest import MOCK_EMBEDDING
 
 REQUESTED_TOP_N = 20
 
@@ -24,6 +24,7 @@ def test_end_to_end_user_journey(
             "foreground_embedding": MOCK_EMBEDDING,
             "full_image_embedding": MOCK_EMBEDDING,
         },
+        "brand_name": "nike",
         "top_n": REQUESTED_TOP_N,
     }
 
@@ -53,6 +54,7 @@ def test_end_to_end_user_journey(
     assert "trending" in observed_channels
     assert "popular" in observed_channels
     assert "freshness" in observed_channels
+    assert "brand_similarity" in observed_channels
 
     assert len(recommendation_events_capture) == REQUESTED_TOP_N
     served_ranking_modes = [

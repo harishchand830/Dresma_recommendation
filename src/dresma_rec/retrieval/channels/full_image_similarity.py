@@ -6,6 +6,7 @@ import logging
 from google.cloud.spanner_v1 import param_types
 from google.cloud.spanner_v1.database import Database
 
+from dresma_rec.retrieval.brand_embedding_lookup import fetch_brand_embedding
 from dresma_rec.retrieval.channels.base import BaseRetrievalChannel
 from dresma_rec.schemas.recommendations import RecommendationRequest
 
@@ -35,12 +36,31 @@ class FullImageSimilarityChannel(BaseRetrievalChannel):
         limit: int,
         **kwargs,
     ) -> list[dict]:
-        embedding = getattr(request.upload, "full_image_embedding", None)
-        if not embedding:
+        full_embedding = getattr(request.upload, "full_image_embedding", None)
+        if not full_embedding:
             return []
 
         try:
-            return await asyncio.to_thread(self._retrieve_sync, embedding, limit)
+            selected_embedding = full_embedding
+            source_type = "upload_full"
+
+            brand_name = (request.brand_name or "").strip()
+            if brand_name:
+                brand_embedding = await asyncio.to_thread(
+                    fetch_brand_embedding,
+                    self._database,
+                    brand_name,
+                )
+                if brand_embedding:
+                    selected_embedding = brand_embedding
+                    source_type = "brand_embedding"
+
+            return await asyncio.to_thread(
+                self._retrieve_sync,
+                selected_embedding,
+                limit,
+                source_type,
+            )
         except Exception:
             logger.exception(
                 "C2 full-image similarity retrieval failed for job_id=%s",
@@ -48,7 +68,7 @@ class FullImageSimilarityChannel(BaseRetrievalChannel):
             )
             return []
 
-    def _retrieve_sync(self, embedding: list[float], limit: int) -> list[dict]:
+    def _retrieve_sync(self, embedding: list[float], limit: int, source_type: str) -> list[dict]:
         with self._database.snapshot() as snapshot:
             results = snapshot.execute_sql(
                 _C2_QUERY,
@@ -64,6 +84,7 @@ class FullImageSimilarityChannel(BaseRetrievalChannel):
                     "image_url": image_url,
                     "cluster_id": cluster_id,
                     "full_cosine_distance": distance,
+                    "full_similarity_source": source_type,
                     "source_channels": ["full_image"],
                 }
                 for image_id, image_url, cluster_id, distance in results

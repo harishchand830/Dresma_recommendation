@@ -9,6 +9,7 @@ from functools import lru_cache
 from google.cloud.spanner_v1.database import Database
 
 from dresma_rec.retrieval.channels import (
+    BrandSimilarityChannel,
     ForegroundSimilarityChannel,
     FreshnessChannel,
     FullImageSimilarityChannel,
@@ -25,12 +26,20 @@ RETRIEVAL_DEADLINE_SEC = 0.15
 _DEFAULT_CHANNEL_LIMITS: dict[str, int] = {
     "foreground": 100,
     "full_image": 50,
+    "brand_similarity": 30,
     "trending": 50,
     "popular": 50,
     "freshness": 50,
 }
 
-_CHANNEL_NAMES = ("foreground", "full_image", "trending", "popular", "freshness")
+_CHANNEL_NAMES = (
+    "foreground",
+    "full_image",
+    "brand_similarity",
+    "trending",
+    "popular",
+    "freshness",
+)
 
 
 class RetrievalOrchestrator:
@@ -41,6 +50,7 @@ class RetrievalOrchestrator:
         self._deadline_sec = deadline_sec if deadline_sec is not None else RETRIEVAL_DEADLINE_SEC
         self.c1 = ForegroundSimilarityChannel(database)
         self.c2 = FullImageSimilarityChannel(database)
+        self.c6 = BrandSimilarityChannel(database)
         self.c3 = TrendingChannel(database)
         self.c4 = PopularChannel(database)
         self.c5 = FreshnessChannel(database)
@@ -81,6 +91,14 @@ class RetrievalOrchestrator:
                         limits["trending"],
                         cluster_id=cluster_id,
                     ),
+                    timeout=self._deadline_sec,
+                ),
+            ),
+            (
+                "brand_similarity",
+                self.c6,
+                asyncio.wait_for(
+                    self.c6.retrieve(request, limits["brand_similarity"]),
                     timeout=self._deadline_sec,
                 ),
             ),
@@ -163,6 +181,10 @@ class RetrievalOrchestrator:
             return overrides[channel_key]
 
         default_limit = _DEFAULT_CHANNEL_LIMITS[channel_key]
+        if channel_key == "brand_similarity":
+            # Keep this channel intentionally small unless caller overrides.
+            return default_limit
+
         pool_floor = max(50, request.top_n + 30)
         return max(default_limit, pool_floor)
 

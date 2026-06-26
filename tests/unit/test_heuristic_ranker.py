@@ -10,17 +10,20 @@ from dresma_rec.ranking.heuristic import HeuristicRanker, _exploration_slot_coun
 
 
 def _expected_model_score(
-    fg_dist: float = 1.0,
-    full_dist: float = 1.0,
+    fg_dist: float | None = None,
+    full_dist: float | None = None,
+    brand_dist: float | None = None,
     trend: float = 0.0,
     popular: float = 0.0,
     fresh: float = 0.0,
 ) -> float:
-    fg_sim = 1.0 / (1.0 + fg_dist)
-    full_sim = 1.0 / (1.0 + full_dist)
+    fg_sim = 1.0 / (1.0 + fg_dist) if fg_dist is not None else 0.0
+    full_sim = 1.0 / (1.0 + full_dist) if full_dist is not None else 0.0
+    brand_sim = 1.0 / (1.0 + brand_dist) if brand_dist is not None else 0.0
     return (
         (0.4 * fg_sim)
         + (0.2 * full_sim)
+        + (0.02 * brand_sim)
         + (0.2 * trend)
         + (0.1 * popular)
         + (0.1 * fresh)
@@ -41,6 +44,7 @@ def test_heuristic_ranker_math() -> None:
             "source_channels": ["foreground", "full_image", "trending"],
             "fg_cosine_distance": 0.5,
             "full_cosine_distance": 0.2,
+            "brand_cosine_distance": 0.3,
             "trend_score": 0.8,
         },
         {
@@ -50,7 +54,14 @@ def test_heuristic_ranker_math() -> None:
         },
     ]
 
-    ranker = HeuristicRanker()
+    ranker = HeuristicRanker(
+        weight_fg=0.4,
+        weight_full=0.2,
+        weight_brand=0.02,
+        weight_trend=0.2,
+        weight_popular=0.1,
+        weight_fresh=0.1,
+    )
     ranked = ranker.rank(candidates, top_n=3)
 
     assert len(ranked) == 3
@@ -61,7 +72,7 @@ def test_heuristic_ranker_math() -> None:
     ranked_by_id = {candidate["image_id"]: candidate for candidate in ranked}
 
     assert ranked_by_id["multi-signal"]["model_score"] == pytest.approx(
-        _expected_model_score(fg_dist=0.5, full_dist=0.2, trend=0.8)
+        _expected_model_score(fg_dist=0.5, full_dist=0.2, brand_dist=0.3, trend=0.8)
     )
     assert ranked_by_id["fg-only"]["model_score"] == pytest.approx(
         _expected_model_score(fg_dist=0.1)
@@ -71,17 +82,14 @@ def test_heuristic_ranker_math() -> None:
     assert default_candidate["model_score"] == pytest.approx(
         _expected_model_score()
     )
-    assert default_candidate["model_score"] == pytest.approx(0.3)
-
-    default_fg_similarity = 1.0 / (1.0 + 1.0)
-    assert default_fg_similarity == pytest.approx(0.5)
-    assert 0.4 * default_fg_similarity == pytest.approx(0.2)
+    assert default_candidate["model_score"] == pytest.approx(0.0)
 
     for candidate in ranked:
         assert candidate["ranking_mode"] == "cold_start_heuristic"
 
     assert ranked[0]["image_id"] == "multi-signal"
     assert ranked[-1]["image_id"] == "defaults-only"
+
 
 
 @pytest.mark.parametrize("top_n", [3, 10, 20])

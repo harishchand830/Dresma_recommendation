@@ -52,6 +52,13 @@ _C2_ROWS: list[tuple[str, str, int, float]] = [
     ("img-fg-02", f"{_MOCK_BASE_URL}/img-fg-02.jpg", _MOCK_CLUSTER_ID, 0.15),
 ]
 
+_C6_ROWS: list[tuple[str, str, int, float]] = [
+    (f"img-brand-{index:02d}", f"{_MOCK_BASE_URL}/img-brand-{index:02d}.jpg", _MOCK_CLUSTER_ID, 0.04 + (index * 0.01))
+    for index in range(1, 11)
+]
+
+_BRAND_EMBEDDING_ROW: tuple[list[float]] = ([0.02] * EMBEDDING_DIM,)
+
 # C3/C4/C5 signal rows: (image_id, image_url, cluster_id, score)
 _C3_ROWS: list[tuple[str, str, int, float]] = [
     (f"img-trend-{index:02d}", f"{_MOCK_BASE_URL}/img-trend-{index:02d}.jpg", _MOCK_CLUSTER_ID, 0.55 + (index * 0.02))
@@ -91,7 +98,17 @@ def _mock_execute_sql(
         return
 
     if "FROM reference_images" in normalized_sql and "full_image_embedding" in normalized_sql:
+        embedding = (params or {}).get("embedding")
+        if embedding and float(embedding[0]) == 0.02:
+            yield from _C6_ROWS[:limit]
+            return
         yield from _C2_ROWS[:limit]
+        return
+
+    if "FROM brand_guids_prod" in normalized_sql or "FROM brand_guides_prod" in normalized_sql:
+        brand_name = str((params or {}).get("brand_name", "")).strip().lower()
+        if brand_name == "nike":
+            yield _BRAND_EMBEDDING_ROW
         return
 
     if "image_signals" in normalized_sql and "trend_score" in normalized_sql:

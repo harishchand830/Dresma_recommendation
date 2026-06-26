@@ -141,7 +141,7 @@ async def create_recommendations(
         response.job_id,
         cluster_id,
         model_version,
-        {"channels": ["C1", "C2", "C3", "C4", "C5"]},
+        {"channels": ["C1", "C2", "C3", "C4", "C5", "C6"]},
         response.results,
         session_repo,
         events_repo,
