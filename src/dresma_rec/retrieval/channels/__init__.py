@@ -1,4 +1,5 @@
 from dresma_rec.retrieval.channels.base import BaseRetrievalChannel
+from dresma_rec.retrieval.channels.brand_similarity import BrandSimilarityChannel
 from dresma_rec.retrieval.channels.foreground_similarity import (
     ForegroundSimilarityChannel,
 )
@@ -11,6 +12,7 @@ from dresma_rec.retrieval.channels.trending import TrendingChannel
 
 __all__ = [
     "BaseRetrievalChannel",
+    "BrandSimilarityChannel",
     "ForegroundSimilarityChannel",
     "FullImageSimilarityChannel",
     "FreshnessChannel",

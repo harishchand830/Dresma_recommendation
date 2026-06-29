@@ -22,6 +22,7 @@ class RecommendationRequest(BaseModel):
 
     job_id: str
     upload: UploadContext
+    brand_name: str | None = None
     top_n: int = Field(default=20, gt=0)
     retrieval_overrides: dict[str, int] | None = None
 

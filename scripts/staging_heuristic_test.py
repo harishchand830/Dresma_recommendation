@@ -4,7 +4,7 @@
 Runs the real pipeline against staging Spanner — no dummy mocks:
   1. Optional prerequisite checks / batch job setup
   2. Cluster assignment (nearest centroid)
-  3. Five-channel retrieval (C1–C5)
+  3. Multi-channel retrieval (C1-C6)
   4. Heuristic ranker (cold_start_heuristic)
 
 Skips: XGBoost routing, recommendation_sessions, recommendation_events,
@@ -182,8 +182,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--retrieval-timeout",
         type=float,
-        default=5.0,
-        help="Deadline in seconds for each retrieval channel (default: 5.0 for local test).",
+        default=15.0,
+        help="Deadline in seconds for each retrieval channel (default: 15.0 for local test).",
     )
     parser.add_argument(
         "--insert-uploaded-product",
@@ -220,6 +220,11 @@ def parse_args() -> argparse.Namespace:
         "--weight-fresh",
         type=float,
         help="Override freshness score weight.",
+    )
+    parser.add_argument(
+        "--weight-brand",
+        type=float,
+        help="Override brand similarity (C6) weight.",
     )
     parser.add_argument(
         "--verbose",
@@ -378,19 +383,23 @@ def print_ranked_results(ranked: list[dict], cluster_id: int, pool_size: int) ->
     print(f"  returned          : {len(ranked)}\n")
     print(
         f"{'#':>3}  {'image_id':<36}  {'score':>8}  "
-        f"{'fg_dist':>8}  {'full_dist':>8}  {'trend':>6}  "
+        f"{'fg_dist':>8}  {'full_dist':>8}  {'brand_dist':>10}  {'trend':>6}  "
         f"{'engage':>6}  {'fresh':>6}  channels"
     )
-    print("-" * 120)
+    print("-" * 136)
     for position, row in enumerate(ranked, start=1):
         channels = ",".join(row.get("source_channels", []))
         mode = row.get("ranking_mode", "")
         explor = " *explor*" if row.get("is_exploration") else ""
+        fg_str = f"{row['fg_cosine_distance']:8.4f}" if 'fg_cosine_distance' in row else f"{'  -':>8}"
+        full_str = f"{row['full_cosine_distance']:8.4f}" if 'full_cosine_distance' in row else f"{'  -':>8}"
+        brand_str = f"{row['brand_cosine_distance']:10.4f}" if 'brand_cosine_distance' in row else f"{'  -':>10}"
         print(
             f"{position:3d}  {row['image_id']:<36}  "
             f"{row.get('model_score', 0):8.4f}  "
-            f"{row.get('fg_cosine_distance', 1.0):8.4f}  "
-            f"{row.get('full_cosine_distance', 1.0):8.4f}  "
+            f"{fg_str}  "
+            f"{full_str}  "
+            f"{brand_str}  "
             f"{row.get('trend_score', 0):6.3f}  "
             f"{row.get('engagement_score', 0):6.3f}  "
             f"{row.get('freshness_score', 0):6.3f}  {channels}{explor}"
@@ -412,6 +421,7 @@ async def run_heuristic_test(
     weight_trend: float | None,
     weight_popular: float | None,
     weight_fresh: float | None,
+    weight_brand: float | None,
 ) -> None:
     random.seed(seed)
 
@@ -422,6 +432,7 @@ async def run_heuristic_test(
             full_image_embedding=payload["full_image_embedding"],
             intent=payload.get("intent"),
         ),
+        brand_name=payload.get("brand_name"),
         top_n=int(payload.get("top_n", 20)),
         retrieval_overrides=payload.get("retrieval_overrides"),
     )
@@ -439,19 +450,21 @@ async def run_heuristic_test(
         ranker_kwargs["weight_popular"] = weight_popular
     if weight_fresh is not None:
         ranker_kwargs["weight_fresh"] = weight_fresh
+    if weight_brand is not None:
+        ranker_kwargs["weight_brand"] = weight_brand
     
     logger.debug(
-        "Weight overrides received: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s",
-        weight_fg, weight_full, weight_trend, weight_popular, weight_fresh
+        "Weight overrides received: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s, brand=%s",
+        weight_fg, weight_full, weight_trend, weight_popular, weight_fresh, weight_brand
     )
     logger.debug("ranker_kwargs (passed to HeuristicRanker): %s", ranker_kwargs)
     
     ranker = HeuristicRanker(**ranker_kwargs)
     
     logger.debug(
-        "HeuristicRanker created with weights: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s",
+        "HeuristicRanker created with weights: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s, brand=%s",
         ranker.weight_fg, ranker.weight_full, ranker.weight_trend,
-        ranker.weight_popular, ranker.weight_fresh
+        ranker.weight_popular, ranker.weight_fresh, ranker.weight_brand
     )
 
     cluster_id = await assigner.assign_cluster(
@@ -511,6 +524,7 @@ async def run_heuristic_test(
                     "weight_trend": ranker.weight_trend,
                     "weight_popular": ranker.weight_popular,
                     "weight_fresh": ranker.weight_fresh,
+                    "weight_brand": ranker.weight_brand,
                 },
                 "results": [
                     {
@@ -525,6 +539,8 @@ async def run_heuristic_test(
                         "trend_score": row.get("trend_score", 0.0),
                         "engagement_score": row.get("engagement_score", 0.0),
                         "freshness_score": row.get("freshness_score", 0.0),
+                        "brand_cosine_distance": row.get("brand_cosine_distance", 1.0),
+                        "full_similarity_source": row.get("full_similarity_source"),
                         "source_channels": row.get("source_channels", []),
                         "ranking_mode": row.get("ranking_mode"),
                         "is_exploration": row.get("is_exploration", False),
@@ -593,6 +609,7 @@ def main() -> int:
                 weight_trend=args.weight_trend,
                 weight_popular=args.weight_popular,
                 weight_fresh=args.weight_fresh,
+                weight_brand=args.weight_brand,
             )
         )
     except GoogleAPIError as exc:
