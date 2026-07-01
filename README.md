@@ -50,6 +50,65 @@ activate the venv
 
 validate the gcloud adc and set it up 
 
+### Setup Auth From Scratch
+
+#### Option A — Service Account Key (recommended for this project)
+
+```bash
+# 1. Install gcloud CLI if not already installed
+brew install --cask google-cloud-sdk
+
+# 2. Log in to gcloud (just to authenticate your identity)
+gcloud auth login
+
+# 3. Set the project
+gcloud config set project dresma-dev-hc
+
+# 4. Download the service account key from GCP Console:
+#    IAM & Admin → Service Accounts → your SA → Keys → Add Key → JSON
+#    Save it to .tmp/spanner-sa.json in the repo root
+
+mkdir -p .tmp
+mv ~/Downloads/<your-key-file>.json .tmp/spanner-sa.json
+
+# 5. Point ADC to it
+export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/.tmp/spanner-sa.json"
+
+# 6. Verify it works
+gcloud auth application-default print-access-token
+```
+
+#### Option B — Personal gcloud account (if your account has Spanner access)
+
+```bash
+# 1. Install gcloud CLI if not already installed
+brew install --cask google-cloud-sdk
+
+# 2. Log in with your Google account
+gcloud auth login
+
+# 3. Set up Application Default Credentials
+gcloud auth application-default login
+# → Opens browser, sign in with your Google account
+
+# 4. Set the project
+gcloud config set project dresma-dev-hc
+gcloud auth application-default set-quota-project dresma-dev-hc
+
+# 5. Verify it works
+gcloud auth application-default print-access-token
+```
+
+#### Verify ADC is working for Spanner
+
+```bash
+# Should return rows without a 403 error
+gcloud spanner databases execute-sql dresma-rec-dev \
+  --instance=dresma-rec-dev \
+  --project=dresma-dev-hc \
+  --sql="SELECT COUNT(*) FROM reference_images"
+```
+
 
 
 ## 5. Run Staging Heuristic Test
