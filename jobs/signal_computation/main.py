@@ -23,8 +23,9 @@ from jobs.signal_computation.velocity_trend_freshness import (
 logger = logging.getLogger(__name__)
 
 _FETCH_REFERENCES = """
-SELECT image_id, cluster_id, likes, comments, published_at, ingested_at
-FROM reference_images
+SELECT id, cluster_id, likes, comments, createdAt, updatedAt
+FROM brand_references
+WHERE image_type IS NULL OR image_type != 'video'
 """
 
 _FETCH_HISTORY = """

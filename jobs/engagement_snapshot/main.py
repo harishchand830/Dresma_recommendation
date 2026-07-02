@@ -17,8 +17,9 @@ from jobs.common.spanner_util import add_spanner_args, resolve_database
 logger = logging.getLogger(__name__)
 
 _FETCH_REFERENCE_IMAGES = """
-SELECT image_id, likes, comments
-FROM reference_images
+SELECT id, likes, comments
+FROM brand_references
+WHERE image_type IS NULL OR image_type != 'video'
 """
 
 _BATCH_SIZE = 500
@@ -77,11 +78,11 @@ def main() -> int:
         with database.snapshot() as snapshot:
             reference_rows = list(snapshot.execute_sql(_FETCH_REFERENCE_IMAGES))
     except GoogleAPIError as exc:
-        logger.error("Failed to read reference_images: %s", exc)
+        logger.error("Failed to read brand_references: %s", exc)
         return 1
 
     if not reference_rows:
-        logger.info("No reference images found; nothing to snapshot.")
+        logger.info("No brand_references images found; nothing to snapshot.")
         return 0
 
     rows = [

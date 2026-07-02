@@ -93,15 +93,17 @@ def _mock_execute_sql(
         yield (_MOCK_CLUSTER_ID, 0.1)
         return
 
-    if "FROM reference_images" in normalized_sql and "foreground_embedding" in normalized_sql:
+    if "FROM brand_references" in normalized_sql and "bg_remove_url_embeddings" in normalized_sql:
+        embedding = (params or {}).get("embedding")
+        if embedding and float(embedding[0]) == 0.02:
+            # brand embedding used as query → C6 brand-similarity results
+            yield from _C6_ROWS[:limit]
+            return
+        # regular foreground embedding → C1 results
         yield from _C1_ROWS[:limit]
         return
 
-    if "FROM reference_images" in normalized_sql and "full_image_embedding" in normalized_sql:
-        embedding = (params or {}).get("embedding")
-        if embedding and float(embedding[0]) == 0.02:
-            yield from _C6_ROWS[:limit]
-            return
+    if "FROM brand_references" in normalized_sql and "image_url_embeddings" in normalized_sql:
         yield from _C2_ROWS[:limit]
         return
 

@@ -114,7 +114,7 @@ function collectWeights() {
     weight_trend: safeNum(el("wTrend").value, 0.1),
     weight_popular: safeNum(el("wPopular").value, 0.1),
     weight_fresh: safeNum(el("wFresh").value, 0.05),
-    weight_brand: safeNum(el("wBrand")?.value, 0.02),
+    weight_brand: safeNum(el("wBrand")?.value, 0.0),
   };
 }
 

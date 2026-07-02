@@ -23,11 +23,11 @@ if (-not $InstanceId -or -not $DatabaseId) {
 }
 
 $Migrations = @(
-    "001_reference_images.sql",
     "002_image_signals.sql",
     "003_clusters.sql",
     "004_image_engagement_history.sql",
-    "005_cluster_trends.sql"
+    "005_cluster_trends.sql",
+    "012_brand_references_cluster.sql"
 )
 
 Write-Host "Applying $($Migrations.Count) Spanner migrations to $DatabaseId on $InstanceId ..." -ForegroundColor Cyan

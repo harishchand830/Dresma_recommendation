@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """First-time staging bootstrap for heuristic recommendation testing.
 
-Populates empty recommendation tables from existing ``brand_references`` data.
+Reads directly from ``brand_references`` (images only — videos excluded).
 
 Engagement velocity / trend_score need a **baseline snapshot** and a **later**
-reference_images state that differs from that snapshot. Running snapshot and
+brand_references state that differs from that snapshot. Running snapshot and
 signal computation back-to-back in one command sets velocity and trend to 0.
 
 Recommended two-day workflow (company laptop):
 
-  # Day A — baseline snapshot (after migrate + recluster, or alone)
-  python scripts/staging_first_time_setup.py --skip-migration --skip-backfill \\
+  # Day A — baseline snapshot (after recluster, or alone)
+  python scripts/staging_first_time_setup.py --skip-backfill \\
     --skip-reclustering --snapshot-only
 
   # Day B — bump engagement, recompute signals (NO new snapshot)
-  python scripts/staging_first_time_setup.py --skip-migration --skip-backfill \\
+  python scripts/staging_first_time_setup.py --skip-backfill \\
     --skip-reclustering --refresh-reference-images --recompute-signals
 
   # Heuristic test
@@ -22,15 +22,16 @@ Recommended two-day workflow (company laptop):
     --retrieval-timeout 5.0
 
   # Day B — recompute only (reference already refreshed; skip --refresh-reference-images)
-  python scripts/staging_first_time_setup.py --skip-migration --skip-backfill \\
+  python scripts/staging_first_time_setup.py --skip-backfill \\
     --skip-reclustering --recompute-signals
 
-First-time full setup (migrate → recluster → snapshot → signals) still works
+First-time full setup (recluster → snapshot → signals) still works
 for populating tables; expect velocity/trend = 0 until Day B recompute.
 
 Prerequisites:
-  - Spanner DDL migrations 001–005 applied (scripts/staging/apply_migrations.ps1)
-  - brand_references populated; .env has PROJECT_ID, SPANNER_INSTANCE_ID, SPANNER_DATABASE_ID
+  - brand_references populated with image records (image_type != 'video')
+  - cluster_id column exists on brand_references (added by reclustering job)
+  - .env has PROJECT_ID, SPANNER_INSTANCE_ID, SPANNER_DATABASE_ID
 
 Auth: uses ADC from ``gcloud auth application-default login``.
 """
@@ -58,9 +59,8 @@ from jobs.common.spanner_util import add_spanner_args, resolve_database
 logger = logging.getLogger(__name__)
 
 _SETUP_STEPS = (
-    "migrate brand_references → reference_images",
-    "backfill full_image_embedding (optional)",
-    "recluster → clusters",
+    "backfill image_url_embeddings on brand_references (optional)",
+    "recluster brand_references → clusters",
     "engagement snapshot → image_engagement_history",
     "signal computation → image_signals",
     "cluster trends → cluster_trends",
@@ -90,12 +90,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-backfill",
         action="store_true",
-        help="Skip backfill_full_image_embedding (recommended when embeddings exist).",
+        help="Skip backfill_full_image_embedding on brand_references (recommended when embeddings exist).",
     )
     parser.add_argument(
         "--skip-migration",
         action="store_true",
-        help="Skip brand_references → reference_images migration.",
+        help=argparse.SUPPRESS,  # Deprecated: migration no longer needed (using brand_references directly).
     )
     parser.add_argument(
         "--skip-reclustering",
@@ -127,7 +127,7 @@ def parse_args() -> argparse.Namespace:
         "--refresh-reference-images",
         action="store_true",
         help=(
-            "Bump likes/comments on reference_images before the pipeline. "
+            "Bump likes/comments on brand_references before the pipeline. "
             "Implies --recompute-signals (never pairs with a new snapshot)."
         ),
     )
@@ -208,7 +208,7 @@ def print_pre_state(database: spanner.Database) -> None:
     print("=== Current table state (before setup) ===\n")
     checks = {
         "brand_references": "SELECT COUNT(*) FROM brand_references",
-        "reference_images": "SELECT COUNT(*) FROM reference_images",
+        "brand_references (images only)": "SELECT COUNT(*) FROM brand_references WHERE image_type IS NULL OR image_type != 'video'",
         "clusters": "SELECT COUNT(*) FROM clusters",
         "image_engagement_history": "SELECT COUNT(*) FROM image_engagement_history",
         "image_signals": "SELECT COUNT(*) FROM image_signals",
@@ -217,22 +217,22 @@ def print_pre_state(database: spanner.Database) -> None:
     for name, query in checks.items():
         count = _count(database, query)
         label = "TABLE MISSING — apply migrations 001-005 first" if count is None else count
-        print(f"  {name:28} {label}")
+        print(f"  {name:36} {label}")
     print()
 
 
 def print_post_state(database: spanner.Database, mode: str) -> None:
     print("\n=== Table state (after setup) ===\n")
     checks = {
-        "reference_images": "SELECT COUNT(*) FROM reference_images",
-        "reference_images_with_fg": (
-            "SELECT COUNT(*) FROM reference_images WHERE foreground_embedding IS NOT NULL"
+        "brand_references (images)": "SELECT COUNT(*) FROM brand_references WHERE image_type IS NULL OR image_type != 'video'",
+        "brand_refs with fg embedding": (
+            "SELECT COUNT(*) FROM brand_references WHERE bg_remove_url_embeddings IS NOT NULL AND (image_type IS NULL OR image_type != 'video')"
         ),
-        "reference_images_with_full": (
-            "SELECT COUNT(*) FROM reference_images WHERE full_image_embedding IS NOT NULL"
+        "brand_refs with full embedding": (
+            "SELECT COUNT(*) FROM brand_references WHERE image_url_embeddings IS NOT NULL AND (image_type IS NULL OR image_type != 'video')"
         ),
-        "reference_images_clustered": (
-            "SELECT COUNT(*) FROM reference_images WHERE cluster_id IS NOT NULL"
+        "brand_refs clustered": (
+            "SELECT COUNT(*) FROM brand_references WHERE cluster_id IS NOT NULL AND (image_type IS NULL OR image_type != 'video')"
         ),
         "clusters": "SELECT COUNT(*) FROM clusters",
         "image_engagement_history": "SELECT COUNT(*) FROM image_engagement_history",
@@ -241,12 +241,12 @@ def print_post_state(database: spanner.Database, mode: str) -> None:
     }
     for name, query in checks.items():
         count = _count(database, query)
-        print(f"  {name:28} {count if count is not None else 'TABLE MISSING'}")
+        print(f"  {name:36} {count if count is not None else 'TABLE MISSING'}")
 
     if mode == "snapshot_only":
         print(
             "\n  Baseline snapshot written. Next (Day B, after engagement changes):\n"
-            "    python scripts/staging_first_time_setup.py --skip-migration --skip-backfill \\\n"
+            "    python scripts/staging_first_time_setup.py --skip-backfill \\\n"
             "      --skip-reclustering --refresh-reference-images --recompute-signals\n"
         )
     elif mode == "recompute_signals":
@@ -275,32 +275,25 @@ def _run(cmd: list[str], dry_run: bool) -> None:
 
 
 def _timestamp_column(database: spanner.Database) -> str:
-    query = """
-SELECT column_name
-FROM information_schema.columns
-WHERE table_name = 'reference_images'
-  AND column_name IN ('updated_at', 'ingested_at')
-ORDER BY CASE WHEN column_name = 'updated_at' THEN 0 ELSE 1 END
-LIMIT 1
-"""
-    with database.snapshot() as snapshot:
-        rows = list(snapshot.execute_sql(query))
-    if rows:
-        return rows[0][0]
-    return "ingested_at"
+    """Return the timestamp column name used in brand_references for engagement refresh."""
+    # brand_references uses 'updatedAt' as the engagement timestamp
+    return "updatedAt"
 
 
-def _refresh_reference_images(database: spanner.Database, dry_run: bool = False) -> None:
+def _refresh_brand_references(database: spanner.Database, dry_run: bool = False) -> None:
     timestamp_column = _timestamp_column(database)
     print(
-        f"\n=== Refreshing reference_images engagement ({timestamp_column}) ===\n"
+        f"\n=== Refreshing brand_references engagement ({timestamp_column}) ===\n"
     )
 
     with database.snapshot() as snapshot:
-        rows = list(snapshot.execute_sql("SELECT image_id, likes, comments FROM reference_images"))
+        rows = list(snapshot.execute_sql(
+            "SELECT id, likes, comments FROM brand_references "
+            "WHERE image_type IS NULL OR image_type != 'video'"
+        ))
 
     if not rows:
-        print("  No reference_images rows found; skipping refresh.")
+        print("  No brand_references image rows found; skipping refresh.")
         return
 
     updated_values: list[tuple[str, int, int, object]] = []
@@ -335,8 +328,8 @@ def _refresh_reference_images(database: spanner.Database, dry_run: bool = False)
 
     def _write(transaction: spanner.Transaction, batch: list[tuple]) -> None:
         transaction.update(
-            table="reference_images",
-            columns=["image_id", "likes", "comments", timestamp_column],
+            table="brand_references",
+            columns=["id", "likes", "comments", timestamp_column],
             values=batch,
         )
 
@@ -346,7 +339,7 @@ def _refresh_reference_images(database: spanner.Database, dry_run: bool = False)
         database.run_in_transaction(_write, batch)
         total += len(batch)
         print(f"  Updated {total}/{len(updated_values)} rows...")
-    print(f"  reference_images refresh complete: {total} rows.")
+    print(f"  brand_references refresh complete: {total} rows.")
 
 
 def _signal_date_args(as_of_date: str | None) -> list[str]:
@@ -404,21 +397,10 @@ def run_setup(args: argparse.Namespace) -> None:
     steps: list[tuple[str, list[str]]] = []
 
     if mode == "full":
-        if not args.skip_migration:
-            steps.append(
-                (
-                    _SETUP_STEPS[0],
-                    [
-                        sys.executable,
-                        str(_REPO_ROOT / "scripts" / "migrate_brand_references.py"),
-                        *migrate_flags,
-                    ],
-                )
-            )
         if not args.skip_backfill:
             steps.append(
                 (
-                    _SETUP_STEPS[1],
+                    _SETUP_STEPS[0],
                     [
                         sys.executable,
                         str(_REPO_ROOT / "scripts" / "backfill_full_image_embedding.py"),
@@ -428,21 +410,21 @@ def run_setup(args: argparse.Namespace) -> None:
             )
         steps.extend(
             [
-                (_SETUP_STEPS[2], reclustering_cmd),
-                (_SETUP_STEPS[3], snapshot_cmd),
-                (_SETUP_STEPS[4], signals_cmd),
-                (_SETUP_STEPS[5], trends_cmd),
+                (_SETUP_STEPS[1], reclustering_cmd),
+                (_SETUP_STEPS[2], snapshot_cmd),
+                (_SETUP_STEPS[3], signals_cmd),
+                (_SETUP_STEPS[4], trends_cmd),
             ]
         )
     elif mode == "snapshot_only":
         if not args.skip_reclustering:
-            steps.append((_SETUP_STEPS[2], reclustering_cmd))
-        steps.append((_SETUP_STEPS[3], snapshot_cmd))
+            steps.append((_SETUP_STEPS[1], reclustering_cmd))
+        steps.append((_SETUP_STEPS[2], snapshot_cmd))
     elif mode == "recompute_signals":
         steps.extend(
             [
-                (_SETUP_STEPS[4], signals_cmd),
-                (_SETUP_STEPS[5], trends_cmd),
+                (_SETUP_STEPS[3], signals_cmd),
+                (_SETUP_STEPS[4], trends_cmd),
             ]
         )
 
@@ -481,15 +463,14 @@ def main() -> int:
 
     print_pre_state(database)
 
-    if not args.skip_migration:
-        brand_count = _count(database, "SELECT COUNT(*) FROM brand_references")
-        if brand_count is None:
-            logger.error("brand_references table not found.")
-            return 1
-        if brand_count == 0:
-            logger.error("brand_references is empty — nothing to migrate.")
-            return 1
-        print(f"  brand_references has {brand_count} rows.\n")
+    brand_count = _count(database, "SELECT COUNT(*) FROM brand_references WHERE image_type IS NULL OR image_type != 'video'")
+    if brand_count is None:
+        logger.error("brand_references table not found.")
+        return 1
+    if brand_count == 0:
+        logger.error("brand_references has no image rows — ensure it is populated.")
+        return 1
+    print(f"  brand_references (images) has {brand_count} rows.\n")
 
     if args.skip_backfill:
         print(
@@ -503,7 +484,7 @@ def main() -> int:
         )
 
     if args.refresh_reference_images:
-        _refresh_reference_images(database, args.dry_run)
+        _refresh_brand_references(database, args.dry_run)
 
     try:
         run_setup(args)

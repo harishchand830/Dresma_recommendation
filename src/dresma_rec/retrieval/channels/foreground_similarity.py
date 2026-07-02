@@ -13,18 +13,20 @@ logger = logging.getLogger(__name__)
 
 _C1_QUERY = """
 SELECT
-  image_id,
+  id,
   image_url,
   cluster_id,
-  COSINE_DISTANCE(foreground_embedding, @embedding) AS distance
-FROM reference_images
+  COSINE_DISTANCE(bg_remove_url_embeddings, @embedding) AS distance
+FROM brand_references
+WHERE bg_remove_url_embeddings IS NOT NULL
+  AND (image_type IS NULL OR image_type != 'video')
 ORDER BY distance ASC
 LIMIT @limit
 """
 
 
 class ForegroundSimilarityChannel(BaseRetrievalChannel):
-    """Spanner vector kNN on `reference_images.foreground_embedding`."""
+    """Spanner vector kNN on `brand_references.bg_remove_url_embeddings`."""
 
     def __init__(self, database: Database) -> None:
         self._database = database

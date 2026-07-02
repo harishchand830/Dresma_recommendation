@@ -16,12 +16,13 @@ logger = logging.getLogger(__name__)
 
 _C6_QUERY = """
 SELECT
-  image_id,
+  id,
   image_url,
   cluster_id,
-  COSINE_DISTANCE(brand_embedding, @embedding) AS distance
-FROM reference_images
-WHERE brand_embedding IS NOT NULL
+  COSINE_DISTANCE(bg_remove_url_embeddings, @embedding) AS distance
+FROM brand_references
+WHERE bg_remove_url_embeddings IS NOT NULL
+  AND (image_type IS NULL OR image_type != 'video')
 ORDER BY distance ASC
 LIMIT @limit
 """
@@ -66,7 +67,7 @@ class BrandSimilarityChannel(BaseRetrievalChannel):
                 _C6_QUERY,
                 params={"embedding": embedding, "limit": limit},
                 param_types={
-                    "embedding": param_types.Array(param_types.FLOAT64),
+                    "embedding": param_types.Array(param_types.FLOAT32),
                     "limit": param_types.INT64,
                 },
             )

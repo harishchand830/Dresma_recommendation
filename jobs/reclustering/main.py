@@ -17,9 +17,10 @@ from jobs.reclustering.clustering import kmeans_cosine
 logger = logging.getLogger(__name__)
 
 _FETCH_EMBEDDINGS = """
-SELECT image_id, foreground_embedding
-FROM reference_images
-WHERE foreground_embedding IS NOT NULL
+SELECT id, bg_remove_url_embeddings
+FROM brand_references
+WHERE bg_remove_url_embeddings IS NOT NULL
+  AND (image_type IS NULL OR image_type != 'video')
 """
 
 
@@ -70,7 +71,7 @@ def main() -> int:
         with database.snapshot() as snapshot:
             rows = list(snapshot.execute_sql(fetch_sql))
     except GoogleAPIError as exc:
-        logger.error("Failed to read reference_images embeddings: %s", exc)
+        logger.error("Failed to read brand_references embeddings: %s", exc)
         return 1
 
     embeddings = {
@@ -144,10 +145,10 @@ def main() -> int:
         batch_to_write = image_updates[i : i + _UPDATE_BATCH_SIZE]
 
         def _write_image_update_batch(transaction: spanner.Transaction) -> None:
-            """Writes a single batch of cluster_id updates to reference_images."""
+            """Writes a single batch of cluster_id updates to brand_references."""
             transaction.update(
-                table="reference_images",
-                columns=["image_id", "cluster_id"],
+                table="brand_references",
+                columns=["id", "cluster_id"],
                 values=batch_to_write,
             )
 

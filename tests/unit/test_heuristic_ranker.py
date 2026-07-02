@@ -57,7 +57,7 @@ def test_heuristic_ranker_math() -> None:
     ranker = HeuristicRanker(
         weight_fg=0.4,
         weight_full=0.2,
-        weight_brand=0.02,
+        weight_brand=0.0,
         weight_trend=0.2,
         weight_popular=0.1,
         weight_fresh=0.1,
