@@ -17,6 +17,10 @@
         <div class="upload-section">
             <h2>1. Upload Image</h2>
             <input type="file" id="imageUpload" accept="image/*" />
+          <div class="input-group" style="margin-top: 12px;">
+            <label for="brand_name">Brand Name (for C6 + C2 brand lookup)</label>
+            <input type="text" id="brand_name" placeholder="e.g. Nike" />
+          </div>
             <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
                 <img id="imagePreview" src="#" alt="Image Preview" />
                 <div id="clusterInfo" class="cluster-info" style="display: none;">
@@ -46,6 +50,10 @@
             <div class="input-group">
                 <label for="weight_fresh">Freshness (C5)</label>
                 <input type="number" id="weight_fresh" min="0" max="1" step="0.01" value="0.05" />
+            </div>
+            <div class="input-group">
+              <label for="weight_brand">Brand Similarity (C6)</label>
+              <input type="number" id="weight_brand" min="0" max="1" step="0.01" value="0" />
             </div>
 
             <h2 style="margin-top: 40px;">3. Configure Retrieval</h2>
@@ -99,6 +107,7 @@
         weight_trend: document.getElementById("weight_trend"),
         weight_popular: document.getElementById("weight_popular"),
         weight_fresh: document.getElementById("weight_fresh"),
+        weight_brand: document.getElementById("weight_brand"),
         top_n: document.getElementById("top_n"),
       };
 
@@ -137,7 +146,8 @@
         formData.append("image", imageFile);
         formData.append("seed", 42);
         formData.append("top_n", sliders.top_n.value);
-        ['weight_fg', 'weight_full', 'weight_trend', 'weight_popular', 'weight_fresh'].forEach(id => {
+        formData.append("brand_name", document.getElementById("brand_name").value || "");
+        ['weight_fg', 'weight_full', 'weight_trend', 'weight_popular', 'weight_fresh', 'weight_brand'].forEach(id => {
             formData.append(id, sliders[id].value);
         });
 
@@ -178,6 +188,11 @@
             return;
         }
 
+        const num = (value, fallback = 0) => {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        };
+
         data.results.forEach(item => {
             const card = document.createElement("div");
             card.className = "result-card";
@@ -195,11 +210,13 @@
                         <p><strong>Comments:</strong> ${item.comments || 'N/A'}</p>
                     </div>
                     <div class="details">
-                        <p>FG Dist: ${item.fg_cosine_distance.toFixed(4)}</p>
-                        <p>Full Dist: ${item.full_cosine_distance.toFixed(4)}</p>
-                        <p>Trend: ${item.trend_score.toFixed(3)}</p>
-                        <p>Engage: ${item.engagement_score.toFixed(3)}</p>
-                        <p>Fresh: ${item.freshness_score.toFixed(3)}</p>
+                      <p>FG Dist: ${num(item.fg_cosine_distance, 1).toFixed(4)}</p>
+                      <p>Full Dist: ${num(item.full_cosine_distance, 1).toFixed(4)}</p>
+                      <p>Brand Dist: ${num(item.brand_cosine_distance, 1).toFixed(4)}</p>
+                        <p>C2 Source: ${item.full_similarity_source || 'upload_full'}</p>
+                      <p>Trend: ${num(item.trend_score).toFixed(3)}</p>
+                      <p>Engage: ${num(item.engagement_score).toFixed(3)}</p>
+                      <p>Fresh: ${num(item.freshness_score).toFixed(3)}</p>
                     </div>
                     <div class="tags">
                         ${isExploration}

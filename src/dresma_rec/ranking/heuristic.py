@@ -15,6 +15,7 @@ _DEFAULT_WEIGHT_FULL: Final[float] = 0
 _DEFAULT_WEIGHT_TREND: Final[float] = 0
 _DEFAULT_WEIGHT_POPULAR: Final[float] = 0
 _DEFAULT_WEIGHT_FRESH: Final[float] = 1
+_DEFAULT_WEIGHT_BRAND: Final[float] = 0.0
 
 _EXPLORATION_MIN_RATE = 0.05
 _EXPLORATION_MAX_RATE = 0.10
@@ -46,32 +47,36 @@ class HeuristicRanker:
         weight_trend: float = _DEFAULT_WEIGHT_TREND,
         weight_popular: float = _DEFAULT_WEIGHT_POPULAR,
         weight_fresh: float = _DEFAULT_WEIGHT_FRESH,
+        weight_brand: float = _DEFAULT_WEIGHT_BRAND,
     ) -> None:
         self.weight_fg = float(weight_fg)
         self.weight_full = float(weight_full)
         self.weight_trend = float(weight_trend)
         self.weight_popular = float(weight_popular)
         self.weight_fresh = float(weight_fresh)
+        self.weight_brand = float(weight_brand)
 
     def rank(self, candidates: list[dict], top_n: int) -> list[dict]:
         if top_n <= 0:
             return []
         
         logger.debug(
-            "Ranking with weights: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s",
+            "Ranking with weights: fg=%s, full=%s, trend=%s, popular=%s, fresh=%s, brand=%s",
             self.weight_fg, self.weight_full, self.weight_trend,
-            self.weight_popular, self.weight_fresh
+            self.weight_popular, self.weight_fresh, self.weight_brand
         )
 
         for i, candidate in enumerate(candidates):
-            fg_dist = _score_or_default(candidate, "fg_cosine_distance", 1.0)
-            full_dist = _score_or_default(candidate, "full_cosine_distance", 1.0)
+            fg_dist = _optional_distance(candidate, "fg_cosine_distance")
+            full_dist = _optional_distance(candidate, "full_cosine_distance")
+            brand_dist = _optional_distance(candidate, "brand_cosine_distance")
             trend = _score_or_default(candidate, "trend_score", 0.0)
             popular = _score_or_default(candidate, "engagement_score", 0.0)
             fresh = _score_or_default(candidate, "freshness_score", 0.0)
 
-            fg_sim = 1.0 / (1.0 + fg_dist)
-            full_sim = 1.0 / (1.0 + full_dist)
+            fg_sim = 1.0 / (1.0 + fg_dist) if fg_dist is not None else 0.0
+            full_sim = 1.0 / (1.0 + full_dist) if full_dist is not None else 0.0
+            brand_sim = 1.0 / (1.0 + brand_dist) if brand_dist is not None else 0.0
 
             candidate["model_score"] = (
                 (self.weight_fg * fg_sim)
@@ -79,13 +84,14 @@ class HeuristicRanker:
                 + (self.weight_trend * trend)
                 + (self.weight_popular * popular)
                 + (self.weight_fresh * fresh)
+                + (self.weight_brand * brand_sim)
             )
             candidate["ranking_mode"] = "cold_start_heuristic"
             
             if logger.isEnabledFor(logging.DEBUG) and i < 10:  # Log first 10
                 logger.debug(
-                    "Candidate %s: fg_sim=%.4f, full_sim=%.4f, trend=%.4f, popular=%.4f, fresh=%.4f => model_score=%.4f",
-                    candidate.get('image_id'), fg_sim, full_sim, trend, popular, fresh,
+                    "Candidate %s: fg_sim=%.4f, full_sim=%.4f, brand_sim=%.4f, trend=%.4f, popular=%.4f, fresh=%.4f => model_score=%.4f",
+                    candidate.get('image_id'), fg_sim, full_sim, brand_sim, trend, popular, fresh,
                     candidate['model_score']
                 )
 
@@ -150,6 +156,14 @@ def _score_or_default(candidate: dict, key: str, default: float) -> float:
     value = candidate.get(key, default)
     if value is None:
         return default
+    return float(value)
+
+
+def _optional_distance(candidate: dict, key: str) -> float | None:
+    """Return the distance value if present, else None (meaning: skip this term)."""
+    value = candidate.get(key)
+    if value is None:
+        return None
     return float(value)
 
 

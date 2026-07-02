@@ -142,8 +142,10 @@ def run_heuristic_from_upload(
     weight_trend: float = Form(...),
     weight_popular: float = Form(...),
     weight_fresh: float = Form(...),
+    weight_brand: float = Form(0.0),
     top_n: int = Form(40),
     seed: int = Form(42),
+    brand_name: str = Form(""),
     image: UploadFile = File(...),
 ) -> dict[str, Any]:
     if not PROJECT_ID:
@@ -166,6 +168,7 @@ def run_heuristic_from_upload(
         "image_url": f"local-upload:{image.filename}",
         "foreground_embedding": fg_embedding,
         "full_image_embedding": full_embedding,
+        "brand_name": brand_name.strip() or None,
         "top_n": top_n,
         "output_file": str(OUTPUT_PATH),
     }
@@ -189,6 +192,8 @@ def run_heuristic_from_upload(
         str(weight_popular),
         "--weight-fresh",
         str(weight_fresh),
+        "--weight-brand",
+        str(weight_brand),
     ]
 
     print(f"[DEBUG] Running command: {' '.join(cmd)}")
