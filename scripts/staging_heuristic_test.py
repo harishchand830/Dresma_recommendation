@@ -53,21 +53,21 @@ from jobs.common.spanner_util import add_spanner_args, resolve_database
 logger = logging.getLogger(__name__)
 
 _PREREQ_QUERIES: dict[str, str] = {
-    "reference_images": "SELECT COUNT(*) FROM reference_images",
-    "reference_images_with_fg": (
-        "SELECT COUNT(*) FROM reference_images WHERE foreground_embedding IS NOT NULL"
+    "brand_references": "SELECT COUNT(*) FROM brand_references WHERE image_type IS NULL OR image_type != 'video'",
+    "brand_references_with_fg": (
+        "SELECT COUNT(*) FROM brand_references WHERE bg_remove_url_embeddings IS NOT NULL AND (image_type IS NULL OR image_type != 'video')"
     ),
-    "reference_images_with_full": (
-        "SELECT COUNT(*) FROM reference_images WHERE full_image_embedding IS NOT NULL"
+    "brand_references_with_full": (
+        "SELECT COUNT(*) FROM brand_references WHERE image_url_embeddings IS NOT NULL AND (image_type IS NULL OR image_type != 'video')"
     ),
     "clusters": "SELECT COUNT(*) FROM clusters",
-    "reference_images_clustered": (
-        "SELECT COUNT(*) FROM reference_images WHERE cluster_id IS NOT NULL"
+    "brand_references_clustered": (
+        "SELECT COUNT(*) FROM brand_references WHERE cluster_id IS NOT NULL AND (image_type IS NULL OR image_type != 'video')"
     ),
     "image_engagement_history": "SELECT COUNT(*) FROM image_engagement_history",
     "image_signals": "SELECT COUNT(*) FROM image_signals",
     "cluster_trends": "SELECT COUNT(*) FROM cluster_trends",
-    "brand_references": "SELECT COUNT(*) FROM brand_references",
+    "brand_references_total": "SELECT COUNT(*) FROM brand_references",
 }
 
 _MIN_REFERENCE_IMAGES = 10
@@ -270,12 +270,12 @@ def check_prerequisites(database: spanner.Database) -> bool:
         print(f"  {name:32} {value}")
 
     ok = True
-    ref_count = counts.get("reference_images") or 0
+    ref_count = counts.get("brand_references") or 0
     if ref_count < _MIN_REFERENCE_IMAGES:
         print(
-            f"\n  FAIL: reference_images has {ref_count} rows "
+            f"\n  FAIL: brand_references has {ref_count} image rows "
             f"(need >= {_MIN_REFERENCE_IMAGES}). "
-            "Run migrate from brand_references first."
+            "Ensure brand_references is populated with image records."
         )
         ok = False
 
@@ -349,8 +349,8 @@ def _fetch_likes_comments(database: spanner.Database, image_ids: list[str]) -> d
         return {}
 
     sql = (
-        "SELECT image_id, likes, comments FROM reference_images "
-        "WHERE image_id IN UNNEST(@image_ids)"
+        "SELECT id, likes, comments FROM brand_references "
+        "WHERE id IN UNNEST(@image_ids)"
     )
 
     with database.snapshot() as snapshot:

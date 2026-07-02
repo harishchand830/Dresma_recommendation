@@ -17,13 +17,14 @@ _channel_cache = TTLCache(maxsize=500, ttl=300)
 
 _C5_QUERY = """
 SELECT
-  r.image_id,
+  r.id,
   r.image_url,
   r.cluster_id,
   s.freshness_score
 FROM image_signals AS s
-JOIN reference_images AS r ON s.image_id = r.image_id
+JOIN brand_references AS r ON s.image_id = r.id
 WHERE r.cluster_id = @cluster_id
+  AND (r.image_type IS NULL OR r.image_type != 'video')
   AND s.as_of_date = (
     SELECT MAX(as_of_date) FROM image_signals WHERE cluster_id = @cluster_id
   )

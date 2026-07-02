@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Migrate rows from brand_references into reference_images."""
+"""DEPRECATED — no longer needed.
+
+The system now reads directly from ``brand_references`` instead of
+``reference_images``. This migration script (which copied rows from
+brand_references into reference_images) is obsolete and should not be run.
+"""
 
 from __future__ import annotations
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import DefaultCredentialsError
 from google.cloud import spanner
@@ -16,6 +17,7 @@ from google.cloud.aiplatform_v1 import PredictionServiceClient
 from google.cloud.spanner_v1 import param_types
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts" / "staging"
@@ -225,4 +227,150 @@ def run_heuristic_from_upload(
         "stdout": proc.stdout,
         "stderr": proc.stderr,
         "results": results,
+    }
+
+
+@app.get("/api/reference-image-options")
+def reference_image_options(limit: int = 200) -> dict[str, Any]:
+    """Return a list of image_url values from brand_references (keyed by id)."""
+    db = _get_spanner_database()
+    try:
+        with db.snapshot() as snapshot:
+            rows = list(
+                snapshot.execute_sql(
+                    "SELECT id, image_url FROM brand_references "
+                    "WHERE (image_type IS NULL OR image_type != 'video') "
+                    "  AND image_url IS NOT NULL "
+                    "ORDER BY id "
+                    "LIMIT @limit",
+                    params={"limit": limit},
+                    param_types={"limit": param_types.INT64},
+                )
+            )
+    except GoogleAPIError as exc:
+        raise HTTPException(status_code=503, detail=f"Spanner error: {exc}") from exc
+
+    options = [image_url for _id, image_url in rows if image_url]
+    return {"options": options}
+
+
+class RunPayload(BaseModel):
+    payload: dict[str, Any]
+    seed: int = 42
+    weights: dict[str, float] = {}
+
+
+@app.post("/api/run")
+def run_heuristic(body: RunPayload) -> dict[str, Any]:
+    """Run the staging heuristic using an image URL already in brand_references."""
+    payload = body.payload
+    image_url = payload.get("image_url", "")
+
+    # Fetch embeddings from brand_references using the selected image_url
+    db = _get_spanner_database()
+    try:
+        with db.snapshot() as snapshot:
+            rows = list(
+                snapshot.execute_sql(
+                    "SELECT id, bg_remove_url_embeddings, image_url_embeddings "
+                    "FROM brand_references "
+                    "WHERE image_url = @image_url "
+                    "LIMIT 1",
+                    params={"image_url": image_url},
+                    param_types={"image_url": param_types.STRING},
+                )
+            )
+    except GoogleAPIError as exc:
+        raise HTTPException(status_code=503, detail=f"Spanner error: {exc}") from exc
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No brand_references row found for image_url={image_url!r}",
+        )
+
+    _id, fg_emb, full_emb = rows[0]
+    if fg_emb is None or full_emb is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"brand_references row id={_id!r} is missing embeddings. "
+                "Run backfill_full_image_embedding.py first."
+            ),
+        )
+
+    run_payload = {
+        "job_id": payload.get("job_id", f"frontend-run-{uuid.uuid4()}"),
+        "image_url": image_url,
+        "foreground_embedding": list(fg_emb),
+        "full_image_embedding": list(full_emb),
+        "top_n": int(payload.get("top_n", 40)),
+        "intent": payload.get("intent"),
+        "created_at": payload.get("created_at"),
+        "output_file": str(OUTPUT_PATH),
+    }
+    INPUT_PATH.write_text(json.dumps(run_payload, indent=2), encoding="utf-8")
+
+    weights = body.weights
+    cmd = [
+        "python3",
+        "scripts/staging_heuristic_test.py",
+        "--input",
+        str(INPUT_PATH),
+        "--seed",
+        str(body.seed),
+    ]
+    for flag, key in [
+        ("--weight-fg", "weight_fg"),
+        ("--weight-full", "weight_full"),
+        ("--weight-trend", "weight_trend"),
+        ("--weight-popular", "weight_popular"),
+        ("--weight-fresh", "weight_fresh"),
+    ]:
+        if key in weights:
+            cmd += [flag, str(weights[key])]
+
+    proc = subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
+
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Heuristic script failed",
+                "stdout": proc.stdout,
+                "stderr": proc.stderr,
+            },
+        )
+
+    if not OUTPUT_PATH.exists():
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Result JSON was not generated",
+                "stdout": proc.stdout,
+                "stderr": proc.stderr,
+            },
+        )
+
+    results = json.loads(OUTPUT_PATH.read_text(encoding="utf-8"))
+    return {"results": results, "stdout": proc.stdout, "stderr": proc.stderr}
+
+
+@app.get("/api/sample-input")
+def sample_input() -> dict[str, Any]:
+    """Return the last saved staging input as a sample payload."""
+    sample_path = SCRIPTS_DIR / "my_test.json"
+    if sample_path.is_file():
+        data = json.loads(sample_path.read_text(encoding="utf-8"))
+        # Strip large embedding arrays to keep response lightweight
+        data.pop("foreground_embedding", None)
+        data.pop("full_image_embedding", None)
+        return data
+    return {
+        "job_id": "123",
+        "image_url": "",
+        "intent": "Sales",
+        "top_n": 40,
     }

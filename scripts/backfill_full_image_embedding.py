@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill missing full_image_embedding vectors on reference_images (RFC Section 7.1)."""
+"""Backfill missing image_url_embeddings vectors on brand_references."""
 
 from __future__ import annotations
 
@@ -21,17 +21,18 @@ EMBEDDING_DIM = 1408
 BATCH_SIZE = 200
 
 FETCH_NULL_QUERY = """
-SELECT image_id
-FROM reference_images
-WHERE full_image_embedding IS NULL
-ORDER BY image_id
+SELECT id
+FROM brand_references
+WHERE image_url_embeddings IS NULL
+  AND (image_type IS NULL OR image_type != 'video')
+ORDER BY id
 """
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Backfill reference_images.full_image_embedding for rows where the "
+            "Backfill brand_references.image_url_embeddings for rows where the "
             "column is NULL."
         )
     )
@@ -82,8 +83,8 @@ def update_batch(database: Database, image_ids: list[str]) -> None:
 
     def _write(transaction, batch_rows: list[tuple[str, list[float]]]) -> None:
         transaction.update(
-            table="reference_images",
-            columns=["image_id", "full_image_embedding"],
+            table="brand_references",
+            columns=["id", "image_url_embeddings"],
             values=batch_rows,
         )
 
@@ -115,7 +116,7 @@ def main() -> int:
         print("Updated 0 / 0 rows")
         return 0
 
-    logger.info("Found %d reference_images rows with NULL full_image_embedding", total)
+    logger.info("Found %d brand_references rows with NULL image_url_embeddings", total)
 
     updated = 0
     try:
